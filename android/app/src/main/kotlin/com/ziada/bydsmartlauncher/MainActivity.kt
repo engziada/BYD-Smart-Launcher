@@ -46,11 +46,12 @@ class MainActivity : FlutterActivity() {
                         "blindSpot" to false, "telegram" to false,
                         "automations" to false, "realRange" to false, "controls" to false
                     ))
-                    "adbConnect", "adbDisconnect", "adbProbe" -> {
+                    "adbConnect", "adbDisconnect", "adbProbe", "adbProbeSoc" -> {
                         worker.execute {
                             val response = when (call.method) {
                                 "adbConnect" -> adb.connect()
                                 "adbDisconnect" -> adb.disconnect()
+                                "adbProbeSoc" -> adb.probeSoc()
                                 else -> adb.probe()
                             }
                             mainHandler.post { result.success(response) }

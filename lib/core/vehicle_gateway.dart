@@ -9,6 +9,7 @@ abstract interface class VehicleGateway {
   Future<Map<Object?, Object?>> connectAdb();
   Future<Map<Object?, Object?>> disconnectAdb();
   Future<Map<Object?, Object?>> probeAdb();
+  Future<Map<Object?, Object?>> probeSoc();
   void dispose();
 }
 
@@ -75,6 +76,9 @@ class PlatformVehicleGateway implements VehicleGateway {
   Future<Map<Object?, Object?>> probeAdb() => _adbAction('adbProbe');
 
   @override
+  Future<Map<Object?, Object?>> probeSoc() => _adbAction('adbProbeSoc');
+
+  @override
   void dispose() {}
 }
 
@@ -112,6 +116,9 @@ class DemoVehicleGateway implements VehicleGateway {
 
   @override
   Future<Map<Object?, Object?>> probeAdb() async => {'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> probeSoc() async => {'error': 'demo_only'};
 
   @override
   void dispose() {}

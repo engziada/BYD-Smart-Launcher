@@ -54,6 +54,23 @@ internal class SafeAdbTransport(context: Context) {
         }
     }
 
+    /** A single fixed read-only autoservice probe; returned SOC is UNVERIFIED for Song Plus. */
+    @Synchronized
+    fun probeSoc(): Map<String, Any?> {
+        if (state != "connected" || client?.isConnected() != true) {
+            return mapOf("ok" to false, "reason" to "adb_not_connected")
+        }
+        val raw = client?.exec(SafeAutoserviceProbe.SOC_READ_COMMAND)
+        val soc = SafeAutoserviceProbe.decodeSoc(raw)
+        return mapOf(
+            "ok" to (soc != null),
+            "socCandidatePercent" to soc,
+            "firmwareVerified" to false,
+            "source" to "BYDMate_v4.0.1_fallback_FID",
+            "reason" to if (soc == null) "unsupported_or_no_response" else "requires_firmware_validation",
+        )
+    }
+
     /** Limited, READ-ONLY environment probe. Never pass arbitrary UI-provided commands here. */
     @Synchronized
     fun probe(): Map<String, Any?> {

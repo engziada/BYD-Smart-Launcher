@@ -139,6 +139,7 @@ class _LauncherHomeState extends State<LauncherHome> {
       final response = switch (action) {
         'connect' => await _gateway.connectAdb(),
         'disconnect' => await _gateway.disconnectAdb(),
+        'soc' => await _gateway.probeSoc(),
         _ => await _gateway.probeAdb(),
       };
       final snapshot = await _gateway.getSnapshot();
@@ -331,6 +332,11 @@ class _LauncherHomeState extends State<LauncherHome> {
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('probe'),
                 icon: const Icon(Icons.info_outline),
                 label: const Text('Probe Android version'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('soc'),
+                icon: const Icon(Icons.battery_full),
+                label: const Text('Probe SOC (unverified)'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),

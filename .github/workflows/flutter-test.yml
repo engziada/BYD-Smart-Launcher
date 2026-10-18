@@ -21,5 +21,7 @@ jobs:
       - run: flutter test
       - name: Generate missing standard Android wrapper files
         run: flutter create --platforms=android --project-name byd_smart_launcher --org com.ziada .
+      - name: Run native Android unit tests
+        run: cd android && ./gradlew testDebugUnitTest --no-daemon
       - name: Compile Android debug APK (not production)
         run: flutter build apk --debug

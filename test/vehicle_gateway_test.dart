@@ -21,8 +21,9 @@ void main() {
     const gateway = PlatformVehicleGateway();
     expect((await gateway.connectAdb())['adb'], 'not_connected');
     expect((await gateway.probeAdb())['adb'], 'not_connected');
+    expect((await gateway.probeSoc())['adb'], 'not_connected');
     expect((await gateway.disconnectAdb())['adb'], 'not_connected');
-    expect(called, ['adbConnect', 'adbProbe', 'adbDisconnect']);
+    expect(called, ['adbConnect', 'adbProbe', 'adbProbeSoc', 'adbDisconnect']);
   });
 
   test('missing Android plugin returns an explicit ADB unavailable error', () async {
@@ -34,5 +35,6 @@ void main() {
     const demo = DemoVehicleGateway();
     expect((await demo.connectAdb())['error'], 'demo_only');
     expect((await demo.probeAdb())['error'], 'demo_only');
+    expect((await demo.probeSoc())['error'], 'demo_only');
   });
 }

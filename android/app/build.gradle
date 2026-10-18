@@ -28,5 +28,6 @@ android {
 dependencies {
     // BYDMate v4.0.1 STLS pairing certificate generation.
     implementation 'org.bouncycastle:bcpkix-jdk18on:1.85'
+    testImplementation 'junit:junit:4.13.2'
 }
 flutter { source '../..' }
