@@ -22,6 +22,9 @@ abstract interface class VehicleGateway {
   Future<Map<Object?, Object?>> telegramSave(String token, String chatId);
   Future<Map<Object?, Object?>> telegramClear();
   Future<Map<Object?, Object?>> telegramSendTest();
+  Future<Map<Object?, Object?>> telegramOutboxStatus();
+  Future<Map<Object?, Object?>> telegramRetry();
+  Future<Map<Object?, Object?>> telegramClearPending();
   void dispose();
 }
 
@@ -162,6 +165,17 @@ class PlatformVehicleGateway implements VehicleGateway {
   Future<Map<Object?, Object?>> telegramSendTest() => _adbAction('telegramTest');
 
   @override
+  Future<Map<Object?, Object?>> telegramOutboxStatus() =>
+      _adbAction('telegramOutboxStatus');
+
+  @override
+  Future<Map<Object?, Object?>> telegramRetry() => _adbAction('telegramRetry');
+
+  @override
+  Future<Map<Object?, Object?>> telegramClearPending() =>
+      _adbAction('telegramClearPending');
+
+  @override
   void dispose() {}
 }
 
@@ -249,6 +263,18 @@ class DemoVehicleGateway implements VehicleGateway {
 
   @override
   Future<Map<Object?, Object?>> telegramSendTest() async =>
+      {'ok': false, 'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> telegramOutboxStatus() async =>
+      {'ok': true, 'pendingMessages': 0};
+
+  @override
+  Future<Map<Object?, Object?>> telegramRetry() async =>
+      {'ok': false, 'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> telegramClearPending() async =>
       {'ok': false, 'error': 'demo_only'};
 
   @override

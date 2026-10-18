@@ -87,6 +87,20 @@ void main() {
     expect((await gateway.automationMasterSet(true))['error'], 'demo_only');
   });
 
+  test('Telegram queue actions use fixed native methods', () async {
+    final methods = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      methods.add(call.method);
+      return <String, Object?>{'ok': true, 'pendingMessages': 0};
+    });
+    const gateway = PlatformVehicleGateway();
+    expect((await gateway.telegramOutboxStatus())['ok'], true);
+    expect((await gateway.telegramRetry())['ok'], true);
+    expect((await gateway.telegramClearPending())['ok'], true);
+    expect(methods, ['telegramOutboxStatus', 'telegramRetry', 'telegramClearPending']);
+  });
+
   test('missing Android plugin returns an explicit ADB unavailable error', () async {
     const gateway = PlatformVehicleGateway();
     expect((await gateway.connectAdb())['error'], 'not_implemented');

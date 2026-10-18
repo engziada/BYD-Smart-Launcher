@@ -83,6 +83,7 @@ class _LauncherHomeState extends State<LauncherHome> {
   final _tgChat = TextEditingController();
   bool _tgBusy = false;
   bool _tgConfigured = false;
+  int _tgPending = 0;
   String _tgMessage = 'No bot credentials are uploaded to GitHub.';
   final _batteryCapacity = TextEditingController();
   bool _rangeBusy = false;
@@ -297,7 +298,12 @@ class _LauncherHomeState extends State<LauncherHome> {
 
   Future<void> _loadTelegramStatus() async {
     final status = await _gateway.telegramStatus();
-    if (mounted) setState(() => _tgConfigured = status['configured'] == true);
+    if (mounted) {
+      setState(() {
+        _tgConfigured = status['configured'] == true;
+        _tgPending = (status['pendingMessages'] as num?)?.toInt() ?? 0;
+      });
+    }
   }
 
   Future<void> _telegramAction(String action) async {
@@ -310,19 +316,27 @@ class _LauncherHomeState extends State<LauncherHome> {
       final result = switch (action) {
         'save' => await _gateway.telegramSave(_tgToken.text, _tgChat.text),
         'clear' => await _gateway.telegramClear(),
+        'retry' => await _gateway.telegramRetry(),
+        'dropQueue' => await _gateway.telegramClearPending(),
         _ => await _gateway.telegramSendTest(),
       };
       final status = await _gateway.telegramStatus();
       if (mounted) {
         setState(() {
           _tgConfigured = status['configured'] == true;
+          _tgPending = (status['pendingMessages'] as num?)?.toInt() ?? 0;
           _tgMessage = result['ok'] == true
               ? (action == 'save'
                   ? 'Bot credentials encrypted on this device.'
                   : action == 'clear'
                       ? 'Bot configuration cleared.'
-                      : 'Test message sent.')
-              : 'Telegram: ${result['error'] ?? 'operation_failed'}';
+                      : action == 'dropQueue'
+                          ? 'Pending tests removed.'
+                          : result['sent'] == false
+                              ? 'No pending messages to retry.'
+                              : 'Test message confirmed by Telegram.')
+              : 'Telegram: ${result['error'] ?? 'operation_failed'}' +
+                  (_tgPending > 0 ? ' (pending: $_tgPending)' : '');
         });
         if (action == 'save' && result['ok'] == true) {
           _tgToken.clear();
@@ -600,10 +614,26 @@ class _LauncherHomeState extends State<LauncherHome> {
               ),
             ],
           ),
+          Text('Pending diagnostic messages: $_tgPending'),
+          Wrap(spacing: 12, runSpacing: 8, children: [
+            OutlinedButton.icon(
+              onPressed: _tgBusy || _demo || !_tgConfigured || _tgPending == 0
+                  ? null : () => _telegramAction('retry'),
+              icon: const Icon(Icons.refresh_outlined),
+              label: const Text('Retry pending test'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _tgBusy || _demo || _tgPending == 0
+                  ? null : () => _telegramAction('dropQueue'),
+              icon: const Icon(Icons.delete_sweep_outlined),
+              label: const Text('Clear pending tests'),
+            ),
+          ]),
           Text(_tgMessage),
           if (_tgBusy) const LinearProgressIndicator(),
-          const Text('Car ON/OFF notifications need verified BYD power-state events, '
-              'a durable queue, and an on-car acceptance test. They remain disabled.'),
+          const Text('Test messages are stored before sending, with explicit manual retry. '
+              'Delivery is at-least-once (duplicates may occur after a crash). '
+              'Car ON/OFF messages and background retries remain disabled until DiLink validation.'),
         ]);
       case LauncherPage.controls:
         return _section('Vehicle controls', 'Safety gated; no write API yet', [

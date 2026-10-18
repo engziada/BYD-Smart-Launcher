@@ -68,12 +68,14 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     "telegramStatus" -> result.success(telegram.status())
+                    "telegramOutboxStatus" -> result.success(telegram.outboxStatus())
                     "rangeCapacityStatus" -> result.success(adb.capacityStatus())
                     "rangeCapacitySet" -> {
                         val value = call.argument<Number>("kwh")?.toDouble()
                         result.success(adb.configureCapacity(value))
                     }
-                    "telegramSave", "telegramClear", "telegramTest" -> {
+                    "telegramSave", "telegramClear", "telegramTest",
+                    "telegramRetry", "telegramClearPending" -> {
                         worker.execute {
                             val response = when (call.method) {
                                 "telegramSave" -> telegram.configure(
@@ -81,6 +83,8 @@ class MainActivity : FlutterActivity() {
                                     call.argument<String>("chatId") ?: ""
                                 )
                                 "telegramClear" -> telegram.clear()
+                                "telegramRetry" -> telegram.retryPending()
+                                "telegramClearPending" -> telegram.clearPending()
                                 else -> telegram.sendTest()
                             }
                             mainHandler.post { result.success(response) }
