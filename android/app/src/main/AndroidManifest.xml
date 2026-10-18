@@ -18,11 +18,8 @@
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
-      <intent-filter>
-        <action android:name="android.intent.action.MAIN"/>
-        <category android:name="android.intent.category.HOME"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-      </intent-filter>
+      <!-- HOME is deliberately not advertised until the stock launcher fallback
+           and full on-car acceptance are complete. -->
     </activity>
     <meta-data android:name="flutterEmbedding" android:value="2"/>
   </application>
