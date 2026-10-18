@@ -23,6 +23,7 @@ import org.json.JSONObject
 internal class TelegramBotService(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("telegram_secure", Context.MODE_PRIVATE)
+    private val outbox = TelegramOutbox(appContext)
 
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -65,6 +66,9 @@ internal class TelegramBotService(context: Context) {
         "configured" to (read() != null),
         "notificationsEnabled" to false, // No vehicle triggers in this phase.
         "powerStateIntegration" to "not_implemented",
+        "pendingMessages" to outbox.count(),
+        "automaticRetryEnabled" to false,
+        "deliverySemantics" to "at_least_once",
     )
 
     @Synchronized
@@ -84,6 +88,7 @@ internal class TelegramBotService(context: Context) {
             val saved = prefs.edit().putString(
                 PREF_CREDENTIALS, Base64.encodeToString(encrypted, Base64.NO_WRAP)
             ).commit()
+            if (saved) outbox.clear() // New destination must not inherit pending tests.
             mapOf("ok" to saved, "configured" to saved)
         } catch (_: Exception) {
             mapOf("ok" to false, "error" to "secure_storage_unavailable")
@@ -92,18 +97,75 @@ internal class TelegramBotService(context: Context) {
 
     @Synchronized
     fun clear(): Map<String, Any?> {
-        prefs.edit().remove(PREF_CREDENTIALS).apply()
-        return mapOf("ok" to true, "configured" to false)
+        val cleared = prefs.edit().remove(PREF_CREDENTIALS).commit()
+        val removedPending = outbox.clear()
+        return mapOf("ok" to (cleared && removedPending), "configured" to false)
     }
 
     /**
-     * Only called by a direct user press on "Send test". No auto retries or network requests
-     * on configuration, app launch, or car start. The URL is fixed to Telegram's official host.
+     * Explicit test only. Persist the fixed diagnostic event BEFORE contacting the network.
+     * A failure remains queued, and the user may press "Retry" later. No background
+     * delivery and no real car-triggered messages are enabled in this milestone.
      */
     @Synchronized
     fun sendTest(): Map<String, Any?> {
-        val (token, chatId) = read()
-            ?: return mapOf("ok" to false, "error" to "not_configured")
+        if (read() == null) return mapOf("ok" to false, "error" to "not_configured")
+        if (!outbox.enqueueDiagnostic(System.currentTimeMillis())) {
+            return mapOf("ok" to false, "error" to "queue_storage_error")
+        }
+        return retryPending()
+    }
+
+    @Synchronized
+    fun outboxStatus(): Map<String, Any?> = mapOf(
+        "ok" to true,
+        "pendingMessages" to outbox.count(),
+        "nextRetryAtMs" to outbox.pending()?.nextAllowedMs,
+        "automaticRetryEnabled" to false,
+    )
+
+    @Synchronized
+    fun clearPending(): Map<String, Any?> {
+        val cleared = outbox.clear()
+        return mapOf("ok" to cleared, "pendingMessages" to outbox.count())
+    }
+
+    /** Attempts at most ONE message, respecting backoff and using no arbitrary message text. */
+    @Synchronized
+    fun retryPending(): Map<String, Any?> {
+        val pending = outbox.pending() ?: return mapOf(
+            "ok" to true, "sent" to false, "pendingMessages" to 0
+        )
+        val credentials = read() ?: return mapOf(
+            "ok" to false, "error" to "not_configured",
+            "pendingMessages" to outbox.count()
+        )
+        val now = System.currentTimeMillis()
+        if (pending.nextAllowedMs > now) {
+            return mapOf(
+                "ok" to false, "error" to "retry_backoff",
+                "retryAfterSeconds" to ((pending.nextAllowedMs - now + 999L) / 1000L),
+                "pendingMessages" to outbox.count(),
+            )
+        }
+        val failure = sendTelegramText(credentials.first, credentials.second)
+        if (failure == null) {
+            val ack = outbox.markSent(pending.id)
+            return mapOf(
+                "ok" to ack, "sent" to ack, "pendingMessages" to outbox.count(),
+                "error" to if (ack) null else "queue_ack_error",
+            )
+        }
+        outbox.markFailed(pending.id, now)
+        return mapOf(
+            "ok" to false, "sent" to false, "error" to failure,
+            "pendingMessages" to outbox.count(),
+            "retryAfterSeconds" to (TelegramRetryPolicy.delayMs(pending.attempts + 1) / 1000L),
+        )
+    }
+
+    /** Null on confirmed API success, non-sensitive failure code otherwise. */
+    private fun sendTelegramText(token: String, chatId: String): String? {
         var connection: HttpURLConnection? = null
         return try {
             val url = URL("https://api.telegram.org/bot$token/sendMessage")
@@ -115,13 +177,16 @@ internal class TelegramBotService(context: Context) {
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
             val payload = "chat_id=" + URLEncoder.encode(chatId, "UTF-8") +
-                "&text=" + URLEncoder.encode("BYD Smart Launcher: Telegram test successful.", "UTF-8")
+                "&text=" + URLEncoder.encode("BYD Smart Launcher: Telegram diagnostic test.", "UTF-8")
             connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
-            val status = connection.responseCode
-            if (status == 200) mapOf("ok" to true)
-            else mapOf("ok" to false, "error" to "telegram_http_$status")
+            val code = connection.responseCode
+            if (code != 200) return "telegram_http_$code"
+            val response = connection.inputStream.bufferedReader(Charsets.UTF_8).use {
+                it.readText().take(4096)
+            }
+            if (JSONObject(response).optBoolean("ok", false)) null else "telegram_api_rejected"
         } catch (_: Exception) {
-            mapOf("ok" to false, "error" to "telegram_network_error")
+            "telegram_network_error"
         } finally {
             connection?.disconnect()
         }
