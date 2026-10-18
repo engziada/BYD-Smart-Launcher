@@ -5,7 +5,7 @@
 | M1 Flutter launcher shell | Validated prototype | Flutter analyze/test and Android debug compile succeeded on commit `207ca2a` ([CI](https://github.com/engziada/BYD-Smart-Launcher/actions/runs/39171979998)) | No vehicle integration at that stage |
 | M1 ADB handshake | Ported, **awaiting latest CI and car testing** | BYDMate v4.0.1 ADB protocol/keypair/TLS classes under third-party license; user-initiated 127.0.0.1:5555 connect/disconnect and read-only version/SOC probes; test source | Confirm Android build and actual ADB pairing on DiLink OS 2602 |
 | M1 helper and live telemetry | Not implemented | Native code explicitly returns `source=unavailable`; helper remains uninstalled | Port helper, firmware catalog, FID discovery, BYD-only data bridge |
-| M2 blind spot | Not implemented | Pure policy checks; no camera surface access | Port capture/displays after M1 helper, OEM override tests |
+| M2 blind spot | Decision logic ported; camera NOT implemented | BYDMate v4.0.1 pure decision and backoff sources, Android JVM tests; no camera surface access | Port actual AVM capture/displays after M1 helper and accept OEM override on-car |
 | M3 real range | Prototype | Pure estimate calculations and tests | Verified battery capacity, real BMS consumption, buffers/history |
 | M4 automations | Not implemented | Page placeholder | Port rules database/engine, local triggers, constraints |
 | M5 Telegram | Not implemented | Page placeholder | Bot pairing, protected tokens, power-off queue |
