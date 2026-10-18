@@ -88,6 +88,12 @@ class _LauncherHomeState extends State<LauncherHome> {
   bool _rangeBusy = false;
   Map<Object?, Object?> _rangeCandidate = {};
   String _rangeMessage = 'Press Sample while safely parked. These values are UNVERIFIED.';
+  bool _rulesBusy = false;
+  bool _rulesMasterEnabled = false;
+  List<Map<Object?, Object?>> _storedRules = [];
+  String _newRuleKind = 'SOC_BELOW';
+  final _socRuleThreshold = TextEditingController(text: '25');
+  String _rulesMessage = 'Drafts are local only. No vehicle events are connected.';
 
   @override
   void initState() {
@@ -95,6 +101,7 @@ class _LauncherHomeState extends State<LauncherHome> {
     _connect();
     _loadTelegramStatus();
     _loadCapacityStatus();
+    _loadAutomationStatus();
   }
 
   Future<void> _connect() async {
@@ -128,6 +135,7 @@ class _LauncherHomeState extends State<LauncherHome> {
       _snapshot = VehicleSnapshot.unavailable();
     });
     await _connect();
+    await _loadAutomationStatus();
   }
 
   Future<void> _readDiagnostics() async {
@@ -167,6 +175,67 @@ class _LauncherHomeState extends State<LauncherHome> {
       if (mounted) setState(() => _adbBusy = false);
     }
   }
+
+  void _consumeRules(Map<Object?, Object?> values) {
+    final entries = values['rules'];
+    setState(() {
+      _rulesMasterEnabled = values['masterEnabled'] == true;
+      _storedRules = entries is List
+          ? entries.whereType<Map>().map((e) => e.cast<Object?, Object?>()).toList()
+          : [];
+    });
+  }
+
+  Future<void> _loadAutomationStatus() async {
+    final result = await _gateway.automationStatus();
+    if (mounted && result['ok'] == true) _consumeRules(result);
+  }
+
+  Future<void> _automationAction(String action, {String? id, bool? enabled}) async {
+    if (_rulesBusy || _demo) return;
+    double? threshold;
+    if (action == 'add' && _newRuleKind == 'SOC_BELOW') {
+      threshold = double.tryParse(_socRuleThreshold.text.trim());
+      if (threshold == null || !threshold.isFinite || threshold < 1 || threshold > 99) {
+        setState(() => _rulesMessage = 'Enter an SOC threshold from 1 to 99 percent.');
+        return;
+      }
+    }
+    setState(() {
+      _rulesBusy = true;
+      _rulesMessage = 'Saving local rule settings…';
+    });
+    try {
+      final response = switch (action) {
+        'add' => await _gateway.automationAdd(_newRuleKind, threshold),
+        'toggle' => await _gateway.automationToggle(id ?? '', enabled ?? false),
+        'remove' => await _gateway.automationRemove(id ?? ''),
+        'master' => await _gateway.automationMasterSet(enabled ?? false),
+        _ => <Object?, Object?>{'ok': false, 'error': 'unsupported_action'},
+      };
+      if (mounted) {
+        if (response['ok'] == true) {
+          _consumeRules(response);
+          setState(() => _rulesMessage =
+              'Saved locally. No automatic actions or vehicle writes are connected.');
+        } else {
+          setState(() => _rulesMessage =
+              'Rule update refused: ${response['error'] ?? 'unknown'}');
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _rulesMessage = 'Could not update local rules.');
+    } finally {
+      if (mounted) setState(() => _rulesBusy = false);
+    }
+  }
+
+  String _ruleLabel(Map<Object?, Object?> rule) => switch (rule['kind']) {
+    'SOC_BELOW' => 'SOC at or below ${rule['thresholdPercent']}%',
+    'POWER_ON' => 'Car power ON',
+    'POWER_OFF' => 'Car power OFF',
+    _ => 'Unknown trigger',
+  };
 
   Future<void> _loadCapacityStatus() async {
     final info = await _gateway.rangeCapacityStatus();
@@ -274,6 +343,7 @@ class _LauncherHomeState extends State<LauncherHome> {
     _tgToken.dispose();
     _tgChat.dispose();
     _batteryCapacity.dispose();
+    _socRuleThreshold.dispose();
     _subscription?.cancel();
     _gateway.dispose();
     super.dispose();
@@ -416,12 +486,69 @@ class _LauncherHomeState extends State<LauncherHome> {
               'Never treat these candidates as confirmed live vehicle data.'),
         ]);
       case LauncherPage.automations:
-        return _section('Automations', 'Local WHEN → IF → THEN engine pending', [
-          _info('Rules are currently disabled',
-              'No commands are executed from this prototype',
-              Icons.auto_mode_outlined),
-          const Text('Example: WHEN SOC falls below 25% AND the car is on, '
-              'THEN queue a Telegram warning once per trip.'),
+        return _section('Automations — local rule drafts',
+            'Edit notification-only WHEN/THEN rules; live automation dispatcher NOT connected', [
+          _info('Execution disconnected',
+              'Rules persist locally, but no verified car events or automatic sends exist yet.',
+              Icons.shield_outlined),
+          SwitchListTile(
+            value: _rulesMasterEnabled,
+            onChanged: _rulesBusy || _demo
+                ? null : (value) => _automationAction('master', enabled: value),
+            title: const Text('Master enable — saved preference only'),
+            subtitle: const Text('This does not start rule execution.'),
+          ),
+          Row(children: [
+            const Text('WHEN  '),
+            DropdownButton<String>(
+              value: _newRuleKind,
+              items: const [
+                DropdownMenuItem(value: 'SOC_BELOW', child: Text('SOC below threshold')),
+                DropdownMenuItem(value: 'POWER_ON', child: Text('Vehicle power ON')),
+                DropdownMenuItem(value: 'POWER_OFF', child: Text('Vehicle power OFF')),
+              ],
+              onChanged: _rulesBusy || _demo ? null : (value) {
+                if (value != null) setState(() => _newRuleKind = value);
+              },
+            ),
+          ]),
+          if (_newRuleKind == 'SOC_BELOW')
+            TextField(
+              controller: _socRuleThreshold,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'SOC threshold 1–99%'),
+            ),
+          FilledButton.icon(
+            onPressed: _rulesBusy || _demo ? null : () => _automationAction('add'),
+            icon: const Icon(Icons.add),
+            label: const Text('Add notification rule (initially OFF)'),
+          ),
+          if (_rulesBusy) const LinearProgressIndicator(),
+          Text(_rulesMessage),
+          if (_storedRules.isEmpty)
+            const Text('No saved rules yet.'),
+          ..._storedRules.map((rule) {
+            final id = rule['id'] as String? ?? '';
+            final enabled = rule['enabled'] == true;
+            return ListTile(
+              title: Text(_ruleLabel(rule)),
+              subtitle: const Text('THEN: notification-only intent · NOT dispatched'),
+              leading: const Icon(Icons.notifications_none_outlined),
+              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                Switch(
+                  value: enabled,
+                  onChanged: _rulesBusy || _demo ? null
+                      : (value) => _automationAction('toggle', id: id, enabled: value),
+                ),
+                IconButton(
+                  onPressed: _rulesBusy || _demo
+                      ? null : () => _automationAction('remove', id: id),
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Remove saved rule',
+                ),
+              ]),
+            );
+          }),
         ]);
       case LauncherPage.telegram:
         return _section('Telegram bot',
