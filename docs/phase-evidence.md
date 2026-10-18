@@ -7,8 +7,8 @@
 | M1 helper and live telemetry | Not implemented | Native code explicitly returns `source=unavailable`; helper remains uninstalled | Port helper, firmware catalog, FID discovery, BYD-only data bridge |
 | M2 blind spot | Decision logic ported; camera NOT implemented | BYDMate v4.0.1 pure decision and backoff sources, Android JVM tests; no camera surface access | Port actual AVM capture/displays after M1 helper and accept OEM override on-car |
 | M3 real range | Candidate read-only prototype | On-demand FID reads for SOC, cumulative energy and odometer; bounded 25-km consumption trend; operator-entered capacity and native tests | FID catalog resolution and on-car verification, persistent history, calibrated range, automated tracking |
-| M4 automations | Not implemented | Page placeholder | Port rules database/engine, local triggers, constraints |
-| M5 Telegram | Manual test foundation validated | Bot settings encrypted on device; manual HTTPS test and removal; CI passed on `83278f2` | Durable queue, verified power-on/off events and actual notification automation |
+| M4 automations | Pure evaluator added, no dispatch | Verified-only SOC threshold/power edge evaluator, once-per-trip and cooldown guards, Android JVM tests (pending latest CI) | Rule persistence/editor, live verified telemetry, action journal and actual dispatch |
+| M5 Telegram | Manual bot test + power transition policy | Encrypted bot settings and manual HTTPS test; BYDMate power-off deduplication automaton ported and tests (pending CI) | Durable outbox, verified power-state FID inputs and automatic report dispatcher |
 | M6 vehicle control | Not implemented | Writes unavailable | Strict per-firmware allowlist, stationary confirmation, readback |
 
 ## Notes

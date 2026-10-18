@@ -27,7 +27,8 @@
 - [ ] Validate on-car with manual trip comparison
 
 ## M4: Automations
-- [ ] Model WHEN / IF / THEN local rules, migrations, journal and safeguards
+- [x] Implement a pure, verified-only trigger evaluator (SOC threshold / power edges, cooldown, once-per-trip), native tests
+- [ ] Port full WHEN / IF / THEN local rule database, migrations, journal, UI and guarded dispatcher
 - [ ] Implement non-actuating rules first: notifications
 - [ ] Verify deduplication, once-per-trip, restart and user kill switch
 - [ ] Controlled gating before any comfort writes

@@ -31,6 +31,10 @@ In the **Real Range** tab, enter the verified usable battery capacity in kWh. Wh
 
 **Important:** BYDMate's reference odometer FID uses 0.1 km on Leopard 3, while the official Song Plus catalog may use a **different FID and unit scale**. Until both addresses and scale are verified against the OEM cluster and persistent trip logging is added, candidate numbers remain unverified and will NEVER be promoted to live vehicle telemetry.
 
+## Automation status
+
+A **side-effect-free verified-only trigger evaluator** supports testable SOC threshold edges, power on/off edges, once-per-trip rules, cooldown, and stale/unverified suppression. It is not connected to the unverified ADB FIDs or the Telegram sender. Rule management, persistence, helper-derived power state and actual notifications still require development and on-car acceptance. The pure BYDMate power-off deduplication policy is included separately, without a live event source.
+
 ## Safety / acceptance
 No vehicle writes exposed until the car/firmware is fingerprinted, allowlist verified, stationary gating passed, and explicit per-action confirmation tested. OEM reversing and 360-degree camera always override aftermarket overlays. Test on a stationary, secured car first.
 
