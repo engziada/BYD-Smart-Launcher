@@ -78,6 +78,7 @@ class _LauncherHomeState extends State<LauncherHome> {
   LauncherPage _page = LauncherPage.status;
   bool _demo = false;
   String _diagnostics = 'Vehicle diagnostics not requested';
+  bool _adbBusy = false;
 
   @override
   void initState() {
@@ -123,6 +124,35 @@ class _LauncherHomeState extends State<LauncherHome> {
     if (mounted) {
       setState(() => _diagnostics =
           values.entries.map((e) => '${e.key}: ${e.value}').join(' • '));
+    }
+  }
+
+  Future<void> _adbAction(String action) async {
+    if (_adbBusy || _demo) return;
+    setState(() {
+      _adbBusy = true;
+      _diagnostics = action == 'connect'
+          ? 'Connecting to 127.0.0.1:5555. Accept the DiLink ADB prompt if shown…'
+          : 'Running $action…';
+    });
+    try {
+      final response = switch (action) {
+        'connect' => await _gateway.connectAdb(),
+        'disconnect' => await _gateway.disconnectAdb(),
+        _ => await _gateway.probeAdb(),
+      };
+      final snapshot = await _gateway.getSnapshot();
+      if (mounted) {
+        setState(() {
+          _snapshot = snapshot;
+          _diagnostics =
+              response.entries.map((e) => '${e.key}: ${e.value}').join(' • ');
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _diagnostics = 'ADB operation failed: $error');
+    } finally {
+      if (mounted) setState(() => _adbBusy = false);
     }
   }
 
@@ -271,7 +301,7 @@ class _LauncherHomeState extends State<LauncherHome> {
         ]);
       case LauncherPage.settings:
         return _section('Settings & diagnostics',
-            'ADB and helper are not yet connected', [
+            'ADB handshake only; helper and vehicle telemetry are not yet installed', [
           SwitchListTile(
             value: _demo,
             onChanged: _toggleDemo,
@@ -280,11 +310,39 @@ class _LauncherHomeState extends State<LauncherHome> {
           ),
           _info('ADB: ${_snapshot.adbState}',
               'Helper: ${_snapshot.helperState}', Icons.usb_outlined),
+          const Text('Only use ADB setup while the car is safely parked. '
+              'Enable the head-unit Wireless ADB setting first. '
+              'This prototype will request ADB authorization, but cannot yet access '
+              'BYD vehicle controls or camera feeds.'),
+          const SizedBox(height: 8),
           Text(_diagnostics),
-          OutlinedButton.icon(
-            onPressed: _readDiagnostics,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh diagnostics'),
+          if (_adbBusy) const LinearProgressIndicator(),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('connect'),
+                icon: const Icon(Icons.usb),
+                label: const Text('Connect ADB'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('probe'),
+                icon: const Icon(Icons.info_outline),
+                label: const Text('Probe Android version'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),
+                icon: const Icon(Icons.link_off),
+                label: const Text('Disconnect ADB'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _adbBusy ? null : _readDiagnostics,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh diagnostics'),
+              ),
+            ],
           ),
         ]);
     }

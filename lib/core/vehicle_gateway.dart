@@ -6,6 +6,9 @@ abstract interface class VehicleGateway {
   Future<VehicleSnapshot> getSnapshot();
   Stream<VehicleSnapshot> get snapshots;
   Future<Map<Object?, Object?>> getDiagnostics();
+  Future<Map<Object?, Object?>> connectAdb();
+  Future<Map<Object?, Object?>> disconnectAdb();
+  Future<Map<Object?, Object?>> probeAdb();
   void dispose();
 }
 
@@ -52,6 +55,25 @@ class PlatformVehicleGateway implements VehicleGateway {
     }
   }
 
+  Future<Map<Object?, Object?>> _adbAction(String name) async {
+    try {
+      return await _methods.invokeMapMethod<Object?, Object?>(name) ?? {};
+    } on PlatformException {
+      return {'error': 'platform_unavailable'};
+    } on MissingPluginException {
+      return {'error': 'not_implemented'};
+    }
+  }
+
+  @override
+  Future<Map<Object?, Object?>> connectAdb() => _adbAction('adbConnect');
+
+  @override
+  Future<Map<Object?, Object?>> disconnectAdb() => _adbAction('adbDisconnect');
+
+  @override
+  Future<Map<Object?, Object?>> probeAdb() => _adbAction('adbProbe');
+
   @override
   void dispose() {}
 }
@@ -81,6 +103,15 @@ class DemoVehicleGateway implements VehicleGateway {
   @override
   Future<Map<Object?, Object?>> getDiagnostics() async =>
       {'mode': 'demo', 'carAccess': false};
+
+  @override
+  Future<Map<Object?, Object?>> connectAdb() async => {'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> disconnectAdb() async => {'mode': 'demo'};
+
+  @override
+  Future<Map<Object?, Object?>> probeAdb() async => {'error': 'demo_only'};
 
   @override
   void dispose() {}
