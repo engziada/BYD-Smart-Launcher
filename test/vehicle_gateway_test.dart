@@ -26,6 +26,22 @@ void main() {
     expect(called, ['adbConnect', 'adbProbe', 'adbProbeSoc', 'adbDisconnect']);
   });
 
+  test('explicit Telegram save sends token only through native channel', () async {
+    String? called;
+    Map<Object?, Object?>? params;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      called = call.method;
+      params = (call.arguments as Map).cast<Object?, Object?>();
+      return <String, Object?>{'ok': true, 'configured': true};
+    });
+    const gateway = PlatformVehicleGateway();
+    final reply = await gateway.telegramSave('123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ', '123');
+    expect(reply['ok'], true);
+    expect(called, 'telegramSave');
+    expect(params?['chatId'], '123');
+  });
+
   test('missing Android plugin returns an explicit ADB unavailable error', () async {
     const gateway = PlatformVehicleGateway();
     expect((await gateway.connectAdb())['error'], 'not_implemented');

@@ -79,11 +79,17 @@ class _LauncherHomeState extends State<LauncherHome> {
   bool _demo = false;
   String _diagnostics = 'Vehicle diagnostics not requested';
   bool _adbBusy = false;
+  final _tgToken = TextEditingController();
+  final _tgChat = TextEditingController();
+  bool _tgBusy = false;
+  bool _tgConfigured = false;
+  String _tgMessage = 'No bot credentials are uploaded to GitHub.';
 
   @override
   void initState() {
     super.initState();
     _connect();
+    _loadTelegramStatus();
   }
 
   Future<void> _connect() async {
@@ -157,8 +163,53 @@ class _LauncherHomeState extends State<LauncherHome> {
     }
   }
 
+  Future<void> _loadTelegramStatus() async {
+    final status = await _gateway.telegramStatus();
+    if (mounted) setState(() => _tgConfigured = status['configured'] == true);
+  }
+
+  Future<void> _telegramAction(String action) async {
+    if (_tgBusy || _demo) return;
+    setState(() {
+      _tgBusy = true;
+      _tgMessage = 'Processing Telegram request…';
+    });
+    try {
+      final result = switch (action) {
+        'save' => await _gateway.telegramSave(_tgToken.text, _tgChat.text),
+        'clear' => await _gateway.telegramClear(),
+        _ => await _gateway.telegramSendTest(),
+      };
+      final status = await _gateway.telegramStatus();
+      if (mounted) {
+        setState(() {
+          _tgConfigured = status['configured'] == true;
+          _tgMessage = result['ok'] == true
+              ? (action == 'save'
+                  ? 'Bot credentials encrypted on this device.'
+                  : action == 'clear'
+                      ? 'Bot configuration cleared.'
+                      : 'Test message sent.')
+              : 'Telegram: ${result['error'] ?? 'operation_failed'}';
+        });
+        if (action == 'save' && result['ok'] == true) {
+          _tgToken.clear();
+          _tgChat.clear();
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _tgMessage = 'Telegram operation could not complete.');
+      }
+    } finally {
+      if (mounted) setState(() => _tgBusy = false);
+    }
+  }
+
   @override
   void dispose() {
+    _tgToken.dispose();
+    _tgChat.dispose();
     _subscription?.cancel();
     _gateway.dispose();
     super.dispose();
@@ -284,12 +335,59 @@ class _LauncherHomeState extends State<LauncherHome> {
               'THEN queue a Telegram warning once per trip.'),
         ]);
       case LauncherPage.telegram:
-        return _section('Telegram bot', 'Power on/off and trip reports pending', [
-          _info('Bot not configured',
-              'A durable queue and protected credential storage must be integrated',
-              Icons.send_outlined),
-          const Text('No network messages are sent by this build. '
-              'Never commit a bot token or chat ID to GitHub.'),
+        return _section('Telegram bot',
+            'Encrypted local bot settings • power-state notifications are not yet enabled', [
+          _info(
+            _tgConfigured ? 'Bot credentials saved' : 'Bot not configured',
+            'Manual test messages only. No car events are transmitted in this build.',
+            _tgConfigured ? Icons.lock_outline : Icons.send_outlined,
+          ),
+          TextField(
+            controller: _tgToken,
+            obscureText: true,
+            enableSuggestions: false,
+            autocorrect: false,
+            decoration: const InputDecoration(
+              labelText: 'Telegram Bot Token',
+              hintText: 'Token from BotFather (saved encrypted on this device)',
+              prefixIcon: Icon(Icons.vpn_key_outlined),
+            ),
+          ),
+          TextField(
+            controller: _tgChat,
+            decoration: const InputDecoration(
+              labelText: 'Telegram Chat ID',
+              hintText: 'Private user / group chat ID',
+              prefixIcon: Icon(Icons.chat_bubble_outline),
+            ),
+          ),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: _tgBusy || _demo ? null : () => _telegramAction('save'),
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('Save bot settings'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _tgBusy || _demo || !_tgConfigured
+                    ? null : () => _telegramAction('test'),
+                icon: const Icon(Icons.send_outlined),
+                label: const Text('Send test message'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _tgBusy || _demo || !_tgConfigured
+                    ? null : () => _telegramAction('clear'),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Clear credentials'),
+              ),
+            ],
+          ),
+          Text(_tgMessage),
+          if (_tgBusy) const LinearProgressIndicator(),
+          const Text('Car ON/OFF notifications need verified BYD power-state events, '
+              'a durable queue, and an on-car acceptance test. They remain disabled.'),
         ]);
       case LauncherPage.controls:
         return _section('Vehicle controls', 'Safety gated; no write API yet', [

@@ -42,7 +42,8 @@ internal class TelegramBotService(context: Context) {
         return generator.generateKey()
     }
 
-    private fun read(): Pair<String, String>? = try {
+    private fun read(): Pair<String, String>? {
+        return try {
         val stored = prefs.getString(PREF_CREDENTIALS, null) ?: return null
         val decoded = Base64.decode(stored, Base64.NO_WRAP)
         if (decoded.size < 13) return null
@@ -54,8 +55,9 @@ internal class TelegramBotService(context: Context) {
         if (TelegramConfigValidator.isValidToken(token) && TelegramConfigValidator.isValidChatId(chatId)) {
             token to chatId
         } else null
-    } catch (_: Exception) {
-        null // e.g. restored ciphertext with lost Keystore key; never disclose secrets.
+        } catch (_: Exception) {
+            null // e.g. restored ciphertext with lost Keystore key; never disclose secrets.
+        }
     }
 
     @Synchronized
