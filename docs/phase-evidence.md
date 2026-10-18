@@ -2,12 +2,17 @@
 
 | Milestone | Status | Evidence | Pending |
 |---|---|---|---|
-| M1 scaffold | Partial | Locally executed 16 native Kotlin smoke checks; source available | Flutter SDK unavailable in local analysis environment; GitHub CI and Android compilation pending |
-| M1 ADB/helper | Not implemented | Read-only bridge is intentionally disconnected | Pairing, permissions, helper process, telemetry |
-| M2 cameras | Not implemented | Independent routing policy smoke checks only | Actual capture/display integration and OEM override |
-| M3 real range | Prototype | Pure estimation formula and tests | Validated BMS inputs, trip history |
-| M4 automations | Not implemented | UI placeholder | Rules engine |
-| M5 Telegram | Not implemented | UI placeholder | Bot configuration and outbox |
-| M6 controls | Not implemented | Strict fail-closed policy tests | Vehicle writes, readback, stationary device acceptance |
+| M1 Flutter launcher shell | Validated prototype | Flutter analyze/test and Android debug compile succeeded on commit `207ca2a` ([CI](https://github.com/engziada/BYD-Smart-Launcher/actions/runs/39171979998)) | No vehicle integration at that stage |
+| M1 ADB handshake | Ported, **awaiting latest CI and car testing** | BYDMate v4.0.1 ADB protocol/keypair/TLS classes under third-party license; user-initiated 127.0.0.1:5555 connect/disconnect and read-only version/SOC probes; test source | Confirm Android build and actual ADB pairing on DiLink OS 2602 |
+| M1 helper and live telemetry | Not implemented | Native code explicitly returns `source=unavailable`; helper remains uninstalled | Port helper, firmware catalog, FID discovery, BYD-only data bridge |
+| M2 blind spot | Not implemented | Pure policy checks; no camera surface access | Port capture/displays after M1 helper, OEM override tests |
+| M3 real range | Prototype | Pure estimate calculations and tests | Verified battery capacity, real BMS consumption, buffers/history |
+| M4 automations | Not implemented | Page placeholder | Port rules database/engine, local triggers, constraints |
+| M5 Telegram | Not implemented | Page placeholder | Bot pairing, protected tokens, power-off queue |
+| M6 vehicle control | Not implemented | Writes unavailable | Strict per-firmware allowlist, stationary confirmation, readback |
 
-Never treat UI placeholders or pure policy tests as a completed on-car integration.
+## Notes
+- `adb.connected` confirms transport only; it **never** marks vehicle telematics as live.
+- SOC probe uses BYDMate's Leopard 3 *fallback* address and is marked UNVERIFIED for Song Plus OS 2602 until device-catalog validation.
+- A prior Android CI build on `7ce2850` failed during BouncyCastle duplicate META-INF packaging; new exclusion config applied.
+- No production APK or on-car acceptance completed. No keys/tokens/vehicle ID uploaded.

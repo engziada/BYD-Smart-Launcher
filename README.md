@@ -3,7 +3,7 @@
 Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025** head unit.
 
 ## Current status
-**M1 foundation in progress.** This is source code and a safe, no-vehicle-connected prototype; **not** a functioning DiLink camera/ADB/Telegram integration or a tested APK. Missing vehicle values display as unavailable instead of invented values.
+**M1 foundation in progress.** The Flutter/Kotlin project now includes an opt-in BYDMate-derived ADB RSA/TLS client and read-only SOC *compatibility* probe; these are not yet validated on the target head unit. This is source code and a safe, no-vehicle-connected prototype; **not** a functioning DiLink camera/ADB/Telegram integration or a tested APK. Missing vehicle values display as unavailable instead of invented values.
 
 ## Priorities
 1. BYDMate-inspired turn-signal blind-spot camera integration (factory camera takes priority)
@@ -19,7 +19,7 @@ Phone integration and Android Auto are out of scope for this phase.
 - Flutter UI, Kotlin Android platform bridge, Kotlin vehicle modules.
 - One APK once integrated, with no dependence on a separately installed BYDMate app.
 - No proprietary Kinex code, extracted 3D models, APK libraries, or artwork are included.
-- BYDMate v4.0.1 is an **implementation reference**. Ported source must preserve its [PolyForm Noncommercial 1.0.0 license](https://github.com/AndyShaman/BYDMate/blob/v4.0.1/LICENSE) and required copyright notice. **Commercial reuse requires appropriate permission.**
+- BYDMate v4.0.1 provides the licensed ADB handshake implementation; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Ported source must preserve its [PolyForm Noncommercial 1.0.0 license](https://github.com/AndyShaman/BYDMate/blob/v4.0.1/LICENSE) and required copyright notice. **Commercial reuse requires appropriate permission.**
 - This repository is **currently public**. Never add Telegram tokens, credentials, vehicle identifiers, or diagnostic dumps containing personal data.
 
 ## Build

@@ -24,6 +24,12 @@ android {
             signingConfig signingConfigs.debug // DEV ONLY.
         }
     }
+    // BC TLS/X509 libraries contain duplicate JPMS/OSGi metadata; not runtime assets.
+    packaging {
+        resources {
+            excludes += ['META-INF/versions/**', 'META-INF/LICENSE.md', 'META-INF/NOTICE.md']
+        }
+    }
 }
 dependencies {
     // BYDMate v4.0.1 STLS pairing certificate generation.
