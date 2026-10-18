@@ -1,6 +1,6 @@
 # Third-party notices
 
-The Android ADB protocol implementation, supporting key/certificate/TLS utilities, and blind-spot decision/backoff policy here are adapted from [BYDMate v4.0.1](https://github.com/AndyShaman/BYDMate/tree/v4.0.1).
+The Android ADB protocol implementation, supporting key/certificate/TLS utilities, blind-spot decision/backoff policy, and verified-power-transition automaton here are adapted from [BYDMate v4.0.1](https://github.com/AndyShaman/BYDMate/tree/v4.0.1).
 
 Required Notice: Copyright AndyShaman (https://github.com/AndyShaman/BYDMate)
 

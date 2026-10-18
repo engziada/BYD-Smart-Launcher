@@ -34,7 +34,8 @@
 
 ## M5: Telegram
 - [ ] Add on-device bot settings with protected credential storage
-- [ ] Port report, durable queue, deduplication and power-off helper protocol
+- [x] Port BYDMate's pure power-off transition/deduplication policy and JVM tests (no live events)
+- [ ] Port report, durable queue, and power-off helper protocol with verified native events
 - [ ] Validate offline/retry/reboot/power cycle end-to-end
 - [ ] Never log tokens, chat identifiers or private messages
 
