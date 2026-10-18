@@ -1,29 +1,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-  <application
-    android:label="BYD Smart Launcher"
-    android:usesCleartextTraffic="false">
-    <activity
-      android:name=".MainActivity"
-      android:exported="true"
+  <!-- Required for a user-initiated loopback ADB TCP connection. -->
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <application android:label="BYD Smart Launcher" android:usesCleartextTraffic="false">
+    <activity android:name=".MainActivity" android:exported="true"
       android:launchMode="singleTop"
       android:theme="@android:style/Theme.Material.Light.NoActionBar"
       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-      android:hardwareAccelerated="true"
-      android:windowSoftInputMode="adjustResize"
+      android:hardwareAccelerated="true" android:windowSoftInputMode="adjustResize"
       android:screenOrientation="landscape">
-      <meta-data
-        android:name="io.flutter.embedding.android.NormalTheme"
+      <meta-data android:name="io.flutter.embedding.android.NormalTheme"
         android:resource="@android:style/Theme.Material.Light.NoActionBar"/>
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
-      <!-- HOME is deliberately not advertised until the stock launcher fallback
-           and full on-car acceptance are complete. -->
+      <!-- Don't replace OEM HOME launcher until acceptance tests. -->
     </activity>
     <meta-data android:name="flutterEmbedding" android:value="2"/>
   </application>
-  <queries>
-    <intent><action android:name="android.intent.action.MAIN"/></intent>
-  </queries>
 </manifest>

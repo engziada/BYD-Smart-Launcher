@@ -1,49 +1,28 @@
 package com.ziada.bydsmartlauncher
 
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.Executors
 
 /**
- * Read-only Flutter bridge. Stub until BYDMate v4.0.1 native transport is ported, licensed,
- * and validated on the specific BYD firmware. Never claim live telemetry from this stub.
+ * Native bridge: ADB handshake and limited read-only Android-version probe. Still NO BYD
+ * autoservice connection, no camera pipeline, and no vehicle control.
  */
 class MainActivity : FlutterActivity() {
-    private val gateway = UnavailableVehicleGateway()
+    private val worker = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val adb by lazy { SafeAdbTransport(applicationContext) }
     private val methods = "com.ziada.byd_smart_launcher/vehicle"
     private val events = "com.ziada.byd_smart_launcher/telemetry"
 
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, methods).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "getSnapshot" -> result.success(gateway.snapshot())
-                "getDiagnostics" -> result.success(gateway.diagnostics())
-                "getCapabilities" -> result.success(gateway.capabilities())
-                else -> result.notImplemented()
-            }
-        }
-        EventChannel(flutterEngine.dartExecutor.binaryMessenger, events).setStreamHandler(object : EventChannel.StreamHandler {
-            override fun onListen(arguments: Any?, sink: EventChannel.EventSink) {
-                sink.success(gateway.snapshot())
-            }
-            override fun onCancel(arguments: Any?) {}
-        })
-    }
-}
-
-interface VehicleGateway {
-    fun snapshot(): Map<String, Any?>
-    fun diagnostics(): Map<String, Any?>
-    fun capabilities(): Map<String, Any?>
-}
-
-class UnavailableVehicleGateway : VehicleGateway {
-    override fun snapshot(): Map<String, Any?> = mapOf(
-        "connected" to false,
-        "adbState" to "not_configured",
-        "helperState" to "unavailable",
+    private fun snapshot(): Map<String, Any?> = mapOf(
+        "connected" to false, // ADB != verified live BYD car telemetry
+        "adbState" to adb.transportState,
+        "helperState" to "not_installed",
         "socPercent" to null,
         "speedKmh" to null,
         "gear" to null,
@@ -54,11 +33,44 @@ class UnavailableVehicleGateway : VehicleGateway {
         "capturedAtEpochMs" to System.currentTimeMillis(),
         "source" to "unavailable"
     )
-    override fun diagnostics(): Map<String, Any?> = mapOf(
-        "adb" to "not_configured", "car" to "not_connected", "writeEnabled" to false
-    )
-    override fun capabilities(): Map<String, Any?> = mapOf(
-        "blindSpot" to false, "telegram" to false, "automations" to false,
-        "controls" to false, "realRange" to false, "adb" to false
-    )
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, methods)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getSnapshot" -> result.success(snapshot())
+                    "getDiagnostics" -> result.success(adb.diagnostics())
+                    "getCapabilities" -> result.success(mapOf(
+                        "adb" to (adb.transportState == "connected"),
+                        "blindSpot" to false, "telegram" to false,
+                        "automations" to false, "realRange" to false, "controls" to false
+                    ))
+                    "adbConnect", "adbDisconnect", "adbProbe" -> {
+                        worker.execute {
+                            val response = when (call.method) {
+                                "adbConnect" -> adb.connect()
+                                "adbDisconnect" -> adb.disconnect()
+                                else -> adb.probe()
+                            }
+                            mainHandler.post { result.success(response) }
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, events)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, sink: EventChannel.EventSink) {
+                    sink.success(snapshot())
+                }
+                override fun onCancel(arguments: Any?) {}
+            })
+    }
+
+    override fun onDestroy() {
+        worker.execute { adb.disconnect() }
+        worker.shutdown()
+        super.onDestroy()
+    }
 }

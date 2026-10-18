@@ -15,14 +15,18 @@ android {
     defaultConfig {
         applicationId 'com.ziada.bydsmartlauncher'
         minSdk 29
-        targetSdk 29 // Revisit after DiLink OS 2602 verification; mirrors BYDMate legacy energydata access.
+        targetSdk 29 // Needs review with DiLink OS 2602.
         versionCode flutter.versionCode
         versionName flutter.versionName
     }
     buildTypes {
         release {
-            signingConfig signingConfigs.debug // DEV ONLY. Never distribute production builds with debug key.
+            signingConfig signingConfigs.debug // DEV ONLY.
         }
     }
+}
+dependencies {
+    // BYDMate v4.0.1 STLS pairing certificate generation.
+    implementation 'org.bouncycastle:bcpkix-jdk18on:1.85'
 }
 flutter { source '../..' }
