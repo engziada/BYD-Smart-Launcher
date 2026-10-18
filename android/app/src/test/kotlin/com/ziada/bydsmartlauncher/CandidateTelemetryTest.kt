@@ -13,6 +13,8 @@ class CandidateTelemetryTest {
     @Test fun badFidsAndParcelNeverBecomeRangeInputs() {
         assertNull(CandidateTelemetry.soc(parcel("BF800000")))
         assertNull(CandidateTelemetry.soc(parcel("7FC00000")))
+        assertNull(CandidateTelemetry.soc(parcel("0000ffff")))
+        assertNull(CandidateTelemetry.energyKwh(parcel("000fffff")))
         assertNull(CandidateTelemetry.soc(parcel("43480000"))) // 200%
         assertNull(CandidateTelemetry.energyKwh(null))
         assertNull(CandidateTelemetry.odometerKm(parcel("0000ffff")))

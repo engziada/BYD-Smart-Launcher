@@ -1,7 +1,5 @@
 package com.ziada.bydsmartlauncher
 
-import kotlin.math.roundToInt
-
 /**
  * Fixed, read-only fallback addresses from BYDMate v4.0.1 FidRegistry.
  * License: PolyForm Noncommercial 1.0.0; see THIRD_PARTY_NOTICES.md.
@@ -24,7 +22,10 @@ internal object CandidateTelemetry {
 
     fun float(output: String?): Double? {
         val bits = word(output) ?: return null
+        // Integer error codes may masquerade as tiny IEEE-754 floats; never expose them.
+        if (bits in setOf(65535, 1048575, -10013, -10011)) return null
         val value = java.lang.Float.intBitsToFloat(bits)
+        if (bits != 0 && kotlin.math.abs(value) < 0.000001f) return null
         return value.toDouble().takeIf { it.isFinite() && value != -1f }
     }
 

@@ -112,12 +112,13 @@ internal class SafeAdbTransport(context: Context) {
             "energyCandidateKwh" to sample.energyKwh,
             "odometerCandidateKm" to sample.odometerKm,
             "consumptionCandidateKwhPer100km" to avg,
-            "rangeCandidateKm" to consumption.rangeKm(sample.soc, capacity),
+            "rangeCandidateKm" to if (sample.valid) consumption.rangeKm(sample.soc, capacity) else null,
             "usableCapacityKwh" to capacity,
             "sampleCount" to consumption.stats()["samples"],
             "windowDistanceKm" to consumption.stats()["windowDistanceKm"],
             "firmwareVerified" to false,
             "source" to "BYDMate_v4.0.1_unverified_fallbacks",
+            "odometerScaleAssumption" to "0.1_km_per_tick_LEOPARD3_NOT_VERIFIED_SONG",
             "reason" to if (sample.valid) "requires_firmware_validation" else "unsupported_or_incomplete_read",
         )
     }
