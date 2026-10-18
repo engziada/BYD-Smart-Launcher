@@ -69,7 +69,8 @@ internal class LocalAutomationRepository(context: Context) {
         return status()
     }
 
-    private fun load(): List<SavedRule> = try {
+    private fun load(): List<SavedRule> {
+        return try {
         val json = JSONArray(prefs.getString("rules_json", "[]") ?: "[]")
         if (json.length() > RulePolicy.MAX_RULES) return emptyList()
         val result = mutableListOf<SavedRule>()
@@ -92,8 +93,9 @@ internal class LocalAutomationRepository(context: Context) {
             )
         }
         result
-    } catch (_: Exception) {
-        emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private fun save(rules: List<SavedRule>): Boolean {

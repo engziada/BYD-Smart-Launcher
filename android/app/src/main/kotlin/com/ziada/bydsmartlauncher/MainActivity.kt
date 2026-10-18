@@ -7,6 +7,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.Executors
+import com.ziada.bydsmartlauncher.automation.LocalAutomationRepository
 
 /**
  * Native bridge: ADB handshake and limited read-only Android-version probe. Still NO BYD
@@ -17,6 +18,7 @@ class MainActivity : FlutterActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val adb by lazy { SafeAdbTransport(applicationContext) }
     private val telegram by lazy { TelegramBotService(applicationContext) }
+    private val ruleStore by lazy { LocalAutomationRepository(applicationContext) }
     private val methods = "com.ziada.byd_smart_launcher/vehicle"
     private val events = "com.ziada.byd_smart_launcher/telemetry"
 
@@ -47,6 +49,24 @@ class MainActivity : FlutterActivity() {
                         "blindSpot" to false, "telegram" to false,
                         "automations" to false, "realRange" to false, "controls" to false
                     ))
+                    "automationStatus" -> result.success(ruleStore.status())
+                    "automationAdd", "automationToggle", "automationRemove", "automationMasterSet" -> {
+                        worker.execute {
+                            val response = when (call.method) {
+                                "automationAdd" -> ruleStore.add(
+                                    call.argument<String>("kind") ?: "",
+                                    call.argument<Number>("thresholdPercent")?.toDouble()
+                                )
+                                "automationToggle" -> ruleStore.toggle(
+                                    call.argument<String>("id") ?: "",
+                                    call.argument<Boolean>("enabled") ?: false
+                                )
+                                "automationRemove" -> ruleStore.remove(call.argument<String>("id") ?: "")
+                                else -> ruleStore.setMaster(call.argument<Boolean>("enabled") ?: false)
+                            }
+                            mainHandler.post { result.success(response) }
+                        }
+                    }
                     "telegramStatus" -> result.success(telegram.status())
                     "rangeCapacityStatus" -> result.success(adb.capacityStatus())
                     "rangeCapacitySet" -> {

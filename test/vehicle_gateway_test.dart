@@ -62,6 +62,31 @@ void main() {
     expect((await demo.setRangeCapacity(60.0))['reason'], 'demo_only');
   });
 
+  test('rule mutations stay typed and routed only to native storage', () async {
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return <String, Object?>{'ok': true, 'rules': []};
+    });
+    const gateway = PlatformVehicleGateway();
+    expect((await gateway.automationStatus())['ok'], true);
+    expect((await gateway.automationAdd('SOC_BELOW', 25.0))['ok'], true);
+    expect((await gateway.automationToggle('abc123', true))['ok'], true);
+    expect((await gateway.automationRemove('abc123'))['ok'], true);
+    expect((await gateway.automationMasterSet(false))['ok'], true);
+    expect(calls, [
+      'automationStatus', 'automationAdd', 'automationToggle',
+      'automationRemove', 'automationMasterSet',
+    ]);
+  });
+
+  test('demo cannot mutate automation rules', () async {
+    const gateway = DemoVehicleGateway();
+    expect((await gateway.automationAdd('POWER_ON', null))['error'], 'demo_only');
+    expect((await gateway.automationMasterSet(true))['error'], 'demo_only');
+  });
+
   test('missing Android plugin returns an explicit ADB unavailable error', () async {
     const gateway = PlatformVehicleGateway();
     expect((await gateway.connectAdb())['error'], 'not_implemented');

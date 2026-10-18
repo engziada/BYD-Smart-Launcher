@@ -13,6 +13,11 @@ abstract interface class VehicleGateway {
   Future<Map<Object?, Object?>> sampleTelemetry();
   Future<Map<Object?, Object?>> rangeCapacityStatus();
   Future<Map<Object?, Object?>> setRangeCapacity(double? kwh);
+  Future<Map<Object?, Object?>> automationStatus();
+  Future<Map<Object?, Object?>> automationAdd(String kind, double? thresholdPercent);
+  Future<Map<Object?, Object?>> automationToggle(String id, bool enabled);
+  Future<Map<Object?, Object?>> automationRemove(String id);
+  Future<Map<Object?, Object?>> automationMasterSet(bool enabled);
   Future<Map<Object?, Object?>> telegramStatus();
   Future<Map<Object?, Object?>> telegramSave(String token, String chatId);
   Future<Map<Object?, Object?>> telegramClear();
@@ -105,6 +110,35 @@ class PlatformVehicleGateway implements VehicleGateway {
   }
 
   @override
+  Future<Map<Object?, Object?>> automationStatus() => _adbAction('automationStatus');
+
+  Future<Map<Object?, Object?>> _automationChange(String method, Map<String, Object?> args) async {
+    try {
+      return await _methods.invokeMapMethod<Object?, Object?>(method, args) ?? {};
+    } on PlatformException {
+      return {'ok': false, 'error': 'platform_unavailable'};
+    } on MissingPluginException {
+      return {'ok': false, 'error': 'not_implemented'};
+    }
+  }
+
+  @override
+  Future<Map<Object?, Object?>> automationAdd(String kind, double? thresholdPercent) =>
+      _automationChange('automationAdd', {'kind': kind, 'thresholdPercent': thresholdPercent});
+
+  @override
+  Future<Map<Object?, Object?>> automationToggle(String id, bool enabled) =>
+      _automationChange('automationToggle', {'id': id, 'enabled': enabled});
+
+  @override
+  Future<Map<Object?, Object?>> automationRemove(String id) =>
+      _automationChange('automationRemove', {'id': id});
+
+  @override
+  Future<Map<Object?, Object?>> automationMasterSet(bool enabled) =>
+      _automationChange('automationMasterSet', {'enabled': enabled});
+
+  @override
   Future<Map<Object?, Object?>> telegramStatus() => _adbAction('telegramStatus');
 
   @override
@@ -180,6 +214,26 @@ class DemoVehicleGateway implements VehicleGateway {
   @override
   Future<Map<Object?, Object?>> setRangeCapacity(double? kwh) async =>
       {'ok': false, 'reason': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> automationStatus() async =>
+      {'ok': true, 'masterEnabled': false, 'executionConnected': false, 'rules': []};
+
+  @override
+  Future<Map<Object?, Object?>> automationAdd(String kind, double? thresholdPercent) async =>
+      {'ok': false, 'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> automationToggle(String id, bool enabled) async =>
+      {'ok': false, 'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> automationRemove(String id) async =>
+      {'ok': false, 'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> automationMasterSet(bool enabled) async =>
+      {'ok': false, 'error': 'demo_only'};
 
   @override
   Future<Map<Object?, Object?>> telegramStatus() async =>
