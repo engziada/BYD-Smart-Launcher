@@ -10,6 +10,9 @@ abstract interface class VehicleGateway {
   Future<Map<Object?, Object?>> disconnectAdb();
   Future<Map<Object?, Object?>> probeAdb();
   Future<Map<Object?, Object?>> probeSoc();
+  Future<Map<Object?, Object?>> sampleTelemetry();
+  Future<Map<Object?, Object?>> rangeCapacityStatus();
+  Future<Map<Object?, Object?>> setRangeCapacity(double? kwh);
   Future<Map<Object?, Object?>> telegramStatus();
   Future<Map<Object?, Object?>> telegramSave(String token, String chatId);
   Future<Map<Object?, Object?>> telegramClear();
@@ -83,6 +86,25 @@ class PlatformVehicleGateway implements VehicleGateway {
   Future<Map<Object?, Object?>> probeSoc() => _adbAction('adbProbeSoc');
 
   @override
+  Future<Map<Object?, Object?>> sampleTelemetry() => _adbAction('telemetrySample');
+
+  @override
+  Future<Map<Object?, Object?>> rangeCapacityStatus() => _adbAction('rangeCapacityStatus');
+
+  @override
+  Future<Map<Object?, Object?>> setRangeCapacity(double? kwh) async {
+    try {
+      return await _methods.invokeMapMethod<Object?, Object?>(
+            'rangeCapacitySet', {'kwh': kwh},
+          ) ?? {};
+    } on PlatformException {
+      return {'ok': false, 'error': 'platform_unavailable'};
+    } on MissingPluginException {
+      return {'ok': false, 'error': 'not_implemented'};
+    }
+  }
+
+  @override
   Future<Map<Object?, Object?>> telegramStatus() => _adbAction('telegramStatus');
 
   @override
@@ -146,6 +168,18 @@ class DemoVehicleGateway implements VehicleGateway {
 
   @override
   Future<Map<Object?, Object?>> probeSoc() async => {'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> sampleTelemetry() async =>
+      {'ok': false, 'reason': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> rangeCapacityStatus() async =>
+      {'ok': false, 'reason': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> setRangeCapacity(double? kwh) async =>
+      {'ok': false, 'reason': 'demo_only'};
 
   @override
   Future<Map<Object?, Object?>> telegramStatus() async =>

@@ -84,12 +84,17 @@ class _LauncherHomeState extends State<LauncherHome> {
   bool _tgBusy = false;
   bool _tgConfigured = false;
   String _tgMessage = 'No bot credentials are uploaded to GitHub.';
+  final _batteryCapacity = TextEditingController();
+  bool _rangeBusy = false;
+  Map<Object?, Object?> _rangeCandidate = {};
+  String _rangeMessage = 'Press Sample while safely parked. These values are UNVERIFIED.';
 
   @override
   void initState() {
     super.initState();
     _connect();
     _loadTelegramStatus();
+    _loadCapacityStatus();
   }
 
   Future<void> _connect() async {
@@ -163,6 +168,64 @@ class _LauncherHomeState extends State<LauncherHome> {
     }
   }
 
+  Future<void> _loadCapacityStatus() async {
+    final info = await _gateway.rangeCapacityStatus();
+    final value = info['usableCapacityKwh'];
+    if (mounted && value is num) {
+      setState(() => _batteryCapacity.text = value.toStringAsFixed(1));
+    }
+  }
+
+  Future<void> _saveCapacity() async {
+    if (_rangeBusy || _demo) return;
+    final textValue = _batteryCapacity.text.trim();
+    final value = textValue.isEmpty ? null : double.tryParse(textValue);
+    if (textValue.isNotEmpty && (value == null || !value.isFinite ||
+        value < 5 || value > 200)) {
+      setState(() => _rangeMessage =
+          'Enter a usable battery capacity between 5 and 200 kWh, or clear it.');
+      return;
+    }
+    setState(() => _rangeBusy = true);
+    try {
+      final res = await _gateway.setRangeCapacity(value);
+      if (mounted) {
+        setState(() => _rangeMessage = res['ok'] == true
+          ? 'Capacity saved as operator-provided (not vehicle-verified).'
+          : 'Capacity could not be saved: ${res['error'] ?? 'unknown'}');
+      }
+    } finally {
+      if (mounted) setState(() => _rangeBusy = false);
+    }
+  }
+
+  Future<void> _sampleTelemetry() async {
+    if (_rangeBusy || _demo) return;
+    setState(() {
+      _rangeBusy = true;
+      _rangeMessage = 'Reading SOC, cumulative energy and mileage once…';
+    });
+    try {
+      final values = await _gateway.sampleTelemetry();
+      if (mounted) {
+        setState(() {
+          _rangeCandidate = values;
+          _rangeMessage = values['ok'] == true
+              ? 'Candidate values received; NOT verified on Song Plus.'
+              : 'Unable to read complete telemetry: ${values['reason'] ?? 'unknown'}';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _rangeBusy = false);
+    }
+  }
+
+  String _candidateValue(String key, String suffix, {int precision = 1}) {
+    final value = _rangeCandidate[key];
+    if (value is! num) return '—';
+    return '${value.toStringAsFixed(precision)} $suffix';
+  }
+
   Future<void> _loadTelegramStatus() async {
     final status = await _gateway.telegramStatus();
     if (mounted) setState(() => _tgConfigured = status['configured'] == true);
@@ -210,6 +273,7 @@ class _LauncherHomeState extends State<LauncherHome> {
   void dispose() {
     _tgToken.dispose();
     _tgChat.dispose();
+    _batteryCapacity.dispose();
     _subscription?.cancel();
     _gateway.dispose();
     super.dispose();
@@ -311,20 +375,45 @@ class _LauncherHomeState extends State<LauncherHome> {
               'persistent window positioning, and no interference with OEM cameras.'),
         ]);
       case LauncherPage.range:
-        return _section('Real range & consumption',
-            'An estimation engine exists; live BMS inputs are not connected', [
+        return _section('Real range — diagnostic candidate',
+            'BYDMate fallback FIDs • NOT verified on Song Plus; use original BYD instruments', [
+          _info('Unverified vehicle readings',
+              'Only explicit sampling. No background monitoring or car controls.',
+              Icons.warning_amber_outlined),
           Row(children: [
-            _metric('Remaining', _value(_snapshot.rangeEstimateKm, ' km'),
-                Icons.route),
-            _metric(
-                'Consumption',
-                _value(_snapshot.avgKwhPer100km, ' kWh/100', decimals: 1),
-                Icons.bolt),
-            _metric('SOC', _value(_snapshot.socPercent, '%'),
-                Icons.battery_full_outlined),
+            _metric('SOC candidate', _candidateValue('socCandidatePercent', '%'), Icons.battery_full_outlined),
+            _metric('Consumption', _candidateValue('consumptionCandidateKwhPer100km', 'kWh/100km'), Icons.bolt),
+            _metric('Range candidate', _candidateValue('rangeCandidateKm', 'km'), Icons.route_outlined),
           ]),
-          const Text('Formula: remaining usable energy divided by '
-              'validated recent kWh/100 km. Unknown or invalid readings stay unavailable.'),
+          Row(children: [
+            _metric('Odometer candidate', _candidateValue('odometerCandidateKm', 'km'), Icons.speed),
+            _metric('Energy counter', _candidateValue('energyCandidateKwh', 'kWh'), Icons.electric_bolt_outlined),
+            _metric('Distance window', _candidateValue('windowDistanceKm', 'km'), Icons.route),
+          ]),
+          TextField(
+            controller: _batteryCapacity,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Usable battery capacity (kWh) — enter YOUR verified value',
+              helperText: 'No assumed battery capacity. Clear and save to remove.',
+            ),
+          ),
+          Wrap(spacing: 12, runSpacing: 10, children: [
+            FilledButton.icon(
+              onPressed: (_rangeBusy || _demo) ? null : _sampleTelemetry,
+              icon: const Icon(Icons.sensors_outlined),
+              label: const Text('Sample vehicle counters'),
+            ),
+            OutlinedButton.icon(
+              onPressed: (_rangeBusy || _demo) ? null : _saveCapacity,
+              icon: const Icon(Icons.save_outlined),
+              label: const Text('Save capacity'),
+            ),
+          ]),
+          if (_rangeBusy) const LinearProgressIndicator(),
+          Text(_rangeMessage),
+          const Text('Consumption needs multiple readings at least 1 km apart. '
+              'Never treat these candidates as confirmed live vehicle data.'),
         ]);
       case LauncherPage.automations:
         return _section('Automations', 'Local WHEN → IF → THEN engine pending', [

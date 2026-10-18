@@ -42,6 +42,26 @@ void main() {
     expect(params?['chatId'], '123');
   });
 
+  test('explicit telemetry reading uses fixed native method', () async {
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return <String, Object?>{'ok': true};
+    });
+    const gateway = PlatformVehicleGateway();
+    expect((await gateway.sampleTelemetry())['ok'], true);
+    expect((await gateway.rangeCapacityStatus())['ok'], true);
+    expect((await gateway.setRangeCapacity(60.0))['ok'], true);
+    expect(calls, ['telemetrySample', 'rangeCapacityStatus', 'rangeCapacitySet']);
+  });
+
+  test('demo does not sample car data', () async {
+    const demo = DemoVehicleGateway();
+    expect((await demo.sampleTelemetry())['reason'], 'demo_only');
+    expect((await demo.setRangeCapacity(60.0))['reason'], 'demo_only');
+  });
+
   test('missing Android plugin returns an explicit ADB unavailable error', () async {
     const gateway = PlatformVehicleGateway();
     expect((await gateway.connectAdb())['error'], 'not_implemented');
