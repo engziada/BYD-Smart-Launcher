@@ -10,6 +10,10 @@ abstract interface class VehicleGateway {
   Future<Map<Object?, Object?>> disconnectAdb();
   Future<Map<Object?, Object?>> probeAdb();
   Future<Map<Object?, Object?>> probeSoc();
+  Future<Map<Object?, Object?>> telegramStatus();
+  Future<Map<Object?, Object?>> telegramSave(String token, String chatId);
+  Future<Map<Object?, Object?>> telegramClear();
+  Future<Map<Object?, Object?>> telegramSendTest();
   void dispose();
 }
 
@@ -79,6 +83,29 @@ class PlatformVehicleGateway implements VehicleGateway {
   Future<Map<Object?, Object?>> probeSoc() => _adbAction('adbProbeSoc');
 
   @override
+  Future<Map<Object?, Object?>> telegramStatus() => _adbAction('telegramStatus');
+
+  @override
+  Future<Map<Object?, Object?>> telegramSave(String token, String chatId) async {
+    try {
+      return await _methods.invokeMapMethod<Object?, Object?>(
+            'telegramSave', {'token': token, 'chatId': chatId},
+          ) ??
+          {};
+    } on PlatformException {
+      return {'ok': false, 'error': 'platform_unavailable'};
+    } on MissingPluginException {
+      return {'ok': false, 'error': 'not_implemented'};
+    }
+  }
+
+  @override
+  Future<Map<Object?, Object?>> telegramClear() => _adbAction('telegramClear');
+
+  @override
+  Future<Map<Object?, Object?>> telegramSendTest() => _adbAction('telegramTest');
+
+  @override
   void dispose() {}
 }
 
@@ -119,6 +146,22 @@ class DemoVehicleGateway implements VehicleGateway {
 
   @override
   Future<Map<Object?, Object?>> probeSoc() async => {'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> telegramStatus() async =>
+      {'configured': false, 'mode': 'demo'};
+
+  @override
+  Future<Map<Object?, Object?>> telegramSave(String token, String chatId) async =>
+      {'ok': false, 'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> telegramClear() async =>
+      {'ok': false, 'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> telegramSendTest() async =>
+      {'ok': false, 'error': 'demo_only'};
 
   @override
   void dispose() {}

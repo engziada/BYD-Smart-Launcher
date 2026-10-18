@@ -16,6 +16,7 @@ class MainActivity : FlutterActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val adb by lazy { SafeAdbTransport(applicationContext) }
+    private val telegram by lazy { TelegramBotService(applicationContext) }
     private val methods = "com.ziada.byd_smart_launcher/vehicle"
     private val events = "com.ziada.byd_smart_launcher/telemetry"
 
@@ -46,6 +47,20 @@ class MainActivity : FlutterActivity() {
                         "blindSpot" to false, "telegram" to false,
                         "automations" to false, "realRange" to false, "controls" to false
                     ))
+                    "telegramStatus" -> result.success(telegram.status())
+                    "telegramSave", "telegramClear", "telegramTest" -> {
+                        worker.execute {
+                            val response = when (call.method) {
+                                "telegramSave" -> telegram.configure(
+                                    call.argument<String>("token") ?: "",
+                                    call.argument<String>("chatId") ?: ""
+                                )
+                                "telegramClear" -> telegram.clear()
+                                else -> telegram.sendTest()
+                            }
+                            mainHandler.post { result.success(response) }
+                        }
+                    }
                     "adbConnect", "adbDisconnect", "adbProbe", "adbProbeSoc" -> {
                         worker.execute {
                             val response = when (call.method) {
