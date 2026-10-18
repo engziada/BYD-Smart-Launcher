@@ -6,9 +6,9 @@
 | M1 ADB handshake | Ported, **awaiting latest CI and car testing** | BYDMate v4.0.1 ADB protocol/keypair/TLS classes under third-party license; user-initiated 127.0.0.1:5555 connect/disconnect and read-only version/SOC probes; test source | Confirm Android build and actual ADB pairing on DiLink OS 2602 |
 | M1 helper and live telemetry | Not implemented | Native code explicitly returns `source=unavailable`; helper remains uninstalled | Port helper, firmware catalog, FID discovery, BYD-only data bridge |
 | M2 blind spot | Decision logic ported; camera NOT implemented | BYDMate v4.0.1 pure decision and backoff sources, Android JVM tests; no camera surface access | Port actual AVM capture/displays after M1 helper and accept OEM override on-car |
-| M3 real range | Prototype | Pure estimate calculations and tests | Verified battery capacity, real BMS consumption, buffers/history |
+| M3 real range | Candidate read-only prototype | On-demand FID reads for SOC, cumulative energy and odometer; bounded 25-km consumption trend; operator-entered capacity and native tests | FID catalog resolution and on-car verification, persistent history, calibrated range, automated tracking |
 | M4 automations | Not implemented | Page placeholder | Port rules database/engine, local triggers, constraints |
-| M5 Telegram | Not implemented | Page placeholder | Bot pairing, protected tokens, power-off queue |
+| M5 Telegram | Manual test foundation validated | Bot settings encrypted on device; manual HTTPS test and removal; CI passed on `83278f2` | Durable queue, verified power-on/off events and actual notification automation |
 | M6 vehicle control | Not implemented | Writes unavailable | Strict per-firmware allowlist, stationary confirmation, readback |
 
 ## Notes

@@ -13,7 +13,9 @@
 3. Open **BYD Smart Launcher → Settings → Connect ADB**. The native DiLink `Allow USB debugging?` approval may appear; review and allow if you consent. Do **not** approve unknown devices or network ADB clients.
 4. Press **Refresh diagnostics** and record the `adb` and `adbFailure` *only*. Expected: `adb: connected` on a compatible setup, else `adb_port_unreachable`, `authorization_rejected_or_timeout`, or `transport_error`. A result of `connected` means ADB transport **only**, not car telemetry access.
 5. Press **Probe Android version**, then **Probe SOC (unverified)**. Compare any candidate SOC against the stock BYD dashboard. No reading or a mismatch is acceptable evidence of an unsupported FID; **do not use candidate values for driving decisions**.
-6. Press **Disconnect ADB**; verify UI remains responsive, then exit app. Disable local Wireless ADB after testing if you do not need it.
+6. Open **Real Range**. Input usable battery capacity only if you know its correct value. For an additional manual read-only test, use **Sample vehicle counters** while parked. Compare SOC and odometer candidate values to the original BYD display before and after any attempt at range estimation. **On Song Plus the BYDMate fallback odometer scale may be wrong**; if so, stop and report the discrepancy rather than calibrating by guesswork.
+7. Candidate consumption needs at least two valid readings one kilometre apart and only lasts during the same app process; it does not imply working background trip tracking.
+8. Press **Disconnect ADB**; verify UI remains responsive, then exit app. Disable local Wireless ADB after testing if you do not need it.
 
 ## Evidence / privacy
 - Note whether DiLink requested RSA approval and whether you could connect after a car restart.

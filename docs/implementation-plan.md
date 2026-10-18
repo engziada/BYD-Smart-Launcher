@@ -7,7 +7,7 @@
 - [x] Flutter <-> Kotlin read-only channel contract
 - [x] Missing-value / demo separation
 - [x] Independent JVM range and camera safety policies + 16 smoke checks
-- [ ] Build Android/Flutter APK and run Flutter tests in equipped environment
+- [x] Build Android/Flutter diagnostic APK and run Flutter tests in CI
 - [ ] Match firmware permissions/capabilities with stationary car diagnostics
 - [ ] Port permitted BYDMate v4.0.1 ADB auth, reconnect, helper bootstrap
 - [ ] Confirm fresh install, pairing and reboot recovery work with no BYDMate installed
@@ -19,9 +19,11 @@
 - [ ] Parked acceptance with indicators; then controlled driving test
 
 ## M3: Real range and consumption
-- [ ] Integrate BMS/odometer readings and persisted trip measurements
+- [x] Implement opt-in read-only fallback BMS/odometer candidate sampling (firmware NOT verified)
+- [ ] Integrate **verified** BMS/odometer addresses, autonomous tracking and persisted trip measurements
 - [ ] Port BYDMate range calculator + consumption smoothing
-- [ ] Test unreliable, negative, stale and discontinuous readings
+- [x] Test float sentinels, malformed parcels, counter resets/jumps and short windows
+- [ ] Test live firmware data quality and SOC confirmation on Song Plus
 - [ ] Validate on-car with manual trip comparison
 
 ## M4: Automations

@@ -3,7 +3,7 @@
 Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025** head unit.
 
 ## Current status
-**M1 foundation in progress.** The Flutter/Kotlin project now includes an opt-in BYDMate-derived ADB RSA/TLS client and read-only SOC *compatibility* probe; these are not yet validated on the target head unit. This is source code and a safe, no-vehicle-connected prototype; **not** a functioning DiLink camera/ADB/Telegram integration or a tested APK. Missing vehicle values display as unavailable instead of invented values.
+**M1 native transport in progress.** The app has opt-in BYDMate-derived ADB RSA/TLS transport and diagnostic read-only SOC, cumulative-energy and odometer **candidate probes**. These fallback FIDs and mileage scale have **not** been validated on the Song Plus head unit. This is source code and a safe, no-vehicle-connected prototype; **not** a functioning DiLink camera/ADB/Telegram integration or a tested APK. Missing vehicle values display as unavailable instead of invented values.
 
 ## Priorities
 1. BYDMate-inspired turn-signal blind-spot camera integration (factory camera takes priority)
@@ -24,6 +24,12 @@ Phone integration and Android Auto are out of scope for this phase.
 
 ## Build
 Install Flutter, Android SDK, JDK 17 and use `flutter pub get && flutter test && flutter build apk --debug`. The Android wrapper may need generation on a new host via `flutter create --platforms=android --project-name byd_smart_launcher --org com.ziada .`; review any generated changes and preserve the project's Kotlin files. The independent native policy tests run with `bash scripts/test-native-core.sh` (requires `kotlinc`).
+
+## Range diagnostic sample (NOT for driving decisions)
+
+In the **Real Range** tab, enter the verified usable battery capacity in kWh. While safely parked, use **Sample vehicle counters** at the start and end of a trip (the app process must stay alive between samples). The app calculates a *candidate* rolling kWh/100km after at least 1 km and a tentative range from SOC × usable capacity / consumption, provided all inputs are plausible.
+
+**Important:** BYDMate's reference odometer FID uses 0.1 km on Leopard 3, while the official Song Plus catalog may use a **different FID and unit scale**. Until both addresses and scale are verified against the OEM cluster and persistent trip logging is added, candidate numbers remain unverified and will NEVER be promoted to live vehicle telemetry.
 
 ## Safety / acceptance
 No vehicle writes exposed until the car/firmware is fingerprinted, allowlist verified, stationary gating passed, and explicit per-action confirmation tested. OEM reversing and 360-degree camera always override aftermarket overlays. Test on a stationary, secured car first.
