@@ -1,6 +1,7 @@
 package com.ziada.bydsmartlauncher
 
 import android.content.Context
+import android.os.SystemClock
 import com.bydmate.app.data.autoservice.AdbConnectFailure
 import com.bydmate.app.data.autoservice.AdbKeyStore
 import com.bydmate.app.data.autoservice.AdbProtocolClient
@@ -12,6 +13,9 @@ import com.bydmate.app.data.autoservice.AdbProtocolClient
  */
 internal class SafeAdbTransport(context: Context) {
     private val keyStore = AdbKeyStore(context.applicationContext)
+    private val preferences = context.applicationContext.getSharedPreferences("range_preferences", Context.MODE_PRIVATE)
+    private val consumption = ConsumptionWindow()
+
     private var client: AdbProtocolClient? = null
 
     @Volatile private var state: String = "not_connected"
@@ -54,6 +58,70 @@ internal class SafeAdbTransport(context: Context) {
         }
     }
 
+    /**
+     * Optional operator-provided usable capacity, used ONLY for tentative range estimation.
+     * This value is not guessed from a model name. Can be cleared using null.
+     */
+    @Synchronized
+    fun configureCapacity(kwh: Double?): Map<String, Any?> {
+        if (kwh == null) {
+            preferences.edit().remove("usable_capacity_kwh").apply()
+            return capacityStatus()
+        }
+        if (!kwh.isFinite() || kwh !in 5.0..200.0) {
+            return mapOf("ok" to false, "error" to "invalid_capacity")
+        }
+        preferences.edit().putFloat("usable_capacity_kwh", kwh.toFloat()).apply()
+        return capacityStatus()
+    }
+
+    fun capacityStatus(): Map<String, Any?> {
+        val capacity = if (preferences.contains("usable_capacity_kwh")) {
+            preferences.getFloat("usable_capacity_kwh", 0f).toDouble()
+        } else null
+        return mapOf(
+            "ok" to true,
+            "usableCapacityKwh" to capacity,
+            "source" to "operator_provided",
+            "firmwareVerified" to false,
+        )
+    }
+
+    /**
+     * A user-invoked, finite read-only diagnostic batch. Fallback addresses are NOT validated
+     * for this vehicle. No vehicle snapshot is promoted to "live" based on these readings.
+     */
+    @Synchronized
+    fun sampleTelemetry(): Map<String, Any?> {
+        if (state != "connected" || client?.isConnected() != true) {
+            return mapOf("ok" to false, "reason" to "adb_not_connected")
+        }
+        val connection = client ?: return mapOf("ok" to false, "reason" to "adb_not_connected")
+        val sample = CandidateSample(
+            soc = CandidateTelemetry.soc(connection.exec(CandidateTelemetry.SOC)),
+            energyKwh = CandidateTelemetry.energyKwh(connection.exec(CandidateTelemetry.TOTAL_ENERGY)),
+            odometerKm = CandidateTelemetry.odometerKm(connection.exec(CandidateTelemetry.ODOMETER)),
+            readAtElapsedMs = SystemClock.elapsedRealtime(),
+        )
+        // One missed field invalidates the whole sample. Rejecting it never advances the window.
+        val avg = consumption.add(sample)
+        val capacity = (capacityStatus()["usableCapacityKwh"] as? Number)?.toDouble()
+        return mapOf(
+            "ok" to sample.valid,
+            "socCandidatePercent" to sample.soc,
+            "energyCandidateKwh" to sample.energyKwh,
+            "odometerCandidateKm" to sample.odometerKm,
+            "consumptionCandidateKwhPer100km" to avg,
+            "rangeCandidateKm" to consumption.rangeKm(sample.soc, capacity),
+            "usableCapacityKwh" to capacity,
+            "sampleCount" to consumption.stats()["samples"],
+            "windowDistanceKm" to consumption.stats()["windowDistanceKm"],
+            "firmwareVerified" to false,
+            "source" to "BYDMate_v4.0.1_unverified_fallbacks",
+            "reason" to if (sample.valid) "requires_firmware_validation" else "unsupported_or_incomplete_read",
+        )
+    }
+
     /** A single fixed read-only autoservice probe; returned SOC is UNVERIFIED for Song Plus. */
     @Synchronized
     fun probeSoc(): Map<String, Any?> {
@@ -93,6 +161,7 @@ internal class SafeAdbTransport(context: Context) {
         state = "not_connected"
         failureReason = null
         androidVersion = null
+        consumption.reset()
         return diagnostics()
     }
 

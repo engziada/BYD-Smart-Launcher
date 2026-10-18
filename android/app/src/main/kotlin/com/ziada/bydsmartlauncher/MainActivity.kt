@@ -48,6 +48,11 @@ class MainActivity : FlutterActivity() {
                         "automations" to false, "realRange" to false, "controls" to false
                     ))
                     "telegramStatus" -> result.success(telegram.status())
+                    "rangeCapacityStatus" -> result.success(adb.capacityStatus())
+                    "rangeCapacitySet" -> {
+                        val value = call.argument<Number>("kwh")?.toDouble()
+                        result.success(adb.configureCapacity(value))
+                    }
                     "telegramSave", "telegramClear", "telegramTest" -> {
                         worker.execute {
                             val response = when (call.method) {
@@ -61,12 +66,13 @@ class MainActivity : FlutterActivity() {
                             mainHandler.post { result.success(response) }
                         }
                     }
-                    "adbConnect", "adbDisconnect", "adbProbe", "adbProbeSoc" -> {
+                    "adbConnect", "adbDisconnect", "adbProbe", "adbProbeSoc", "telemetrySample" -> {
                         worker.execute {
                             val response = when (call.method) {
                                 "adbConnect" -> adb.connect()
                                 "adbDisconnect" -> adb.disconnect()
                                 "adbProbeSoc" -> adb.probeSoc()
+                                "telemetrySample" -> adb.sampleTelemetry()
                                 else -> adb.probe()
                             }
                             mainHandler.post { result.success(response) }
