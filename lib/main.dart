@@ -208,8 +208,12 @@ class _LauncherHomeState extends State<LauncherHome> {
             _chargingCandidate = {};
           }
           _diagnostics = action == 'charging'
-              ? 'Manual charging diagnostic captured. Candidate only; '
-                'no charging-complete event or Telegram automation is enabled.'
+              ? response['ok'] == true
+                  ? 'Charging candidate sampled. Not verified; '
+                    'no charge-complete event or Telegram automation is enabled.'
+                  : 'Charging diagnostic unavailable: '
+                    '${response['status'] ?? response['error'] ?? 'unknown'}. '
+                    'No charging state was confirmed.'
               : response.entries.map((e) => '${e.key}: ${e.value}').join(' • ');
         });
       }
