@@ -108,6 +108,7 @@ class _LauncherHomeState extends State<LauncherHome> {
   @override
   void initState() {
     super.initState();
+    _lightMode.addListener(_refreshThemeColors);
     _connect();
     _loadTelegramStatus();
     _loadCapacityStatus();
@@ -382,8 +383,13 @@ class _LauncherHomeState extends State<LauncherHome> {
     }
   }
 
+  void _refreshThemeColors() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _lightMode.removeListener(_refreshThemeColors);
     _tgToken.dispose();
     _tgChat.dispose();
     _batteryCapacity.dispose();
@@ -410,7 +416,7 @@ class _LauncherHomeState extends State<LauncherHome> {
               Icon(icon, color: _accent),
               const SizedBox(height: 8),
               Text(reading,
-                  style: TextStyle(
+                  style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 22)),
               const SizedBox(height: 3),
               Text(name, style: TextStyle(color: _secondary)),
@@ -424,7 +430,7 @@ class _LauncherHomeState extends State<LauncherHome> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(heading,
-            style: TextStyle(
+            style: const TextStyle(
                 fontSize: 25, fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
         Text(description,
@@ -474,7 +480,7 @@ class _LauncherHomeState extends State<LauncherHome> {
           if (!_demo)
             OutlinedButton.icon(
               onPressed: _rangeBusy ? null : _sampleTelemetry,
-              icon: Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh),
               label: const Text('Read diagnostic candidates (parked only)'),
             ),
           Row(children: [
@@ -525,12 +531,12 @@ class _LauncherHomeState extends State<LauncherHome> {
           Wrap(spacing: 12, runSpacing: 10, children: [
             FilledButton.icon(
               onPressed: (_rangeBusy || _demo) ? null : _sampleTelemetry,
-              icon: Icon(Icons.sensors_outlined),
+              icon: const Icon(Icons.sensors_outlined),
               label: const Text('Sample vehicle counters'),
             ),
             OutlinedButton.icon(
               onPressed: (_rangeBusy || _demo) ? null : _saveCapacity,
-              icon: Icon(Icons.save_outlined),
+              icon: const Icon(Icons.save_outlined),
               label: const Text('Save capacity'),
             ),
           ]),
@@ -574,7 +580,7 @@ class _LauncherHomeState extends State<LauncherHome> {
             ),
           FilledButton.icon(
             onPressed: _rulesBusy || _demo ? null : () => _automationAction('add'),
-            icon: Icon(Icons.add),
+            icon: const Icon(Icons.add),
             label: const Text('Add notification rule (initially OFF)'),
           ),
           if (_rulesBusy) const LinearProgressIndicator(),
@@ -587,7 +593,7 @@ class _LauncherHomeState extends State<LauncherHome> {
             return ListTile(
               title: Text(_ruleLabel(rule)),
               subtitle: const Text('THEN: notification-only intent · NOT dispatched'),
-              leading: Icon(Icons.notifications_none_outlined),
+              leading: const Icon(Icons.notifications_none_outlined),
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 Switch(
                   value: enabled,
@@ -597,7 +603,7 @@ class _LauncherHomeState extends State<LauncherHome> {
                 IconButton(
                   onPressed: _rulesBusy || _demo
                       ? null : () => _automationAction('remove', id: id),
-                  icon: Icon(Icons.delete_outline),
+                  icon: const Icon(Icons.delete_outline),
                   tooltip: 'Remove saved rule',
                 ),
               ]),
@@ -637,19 +643,19 @@ class _LauncherHomeState extends State<LauncherHome> {
             children: [
               FilledButton.icon(
                 onPressed: _tgBusy || _demo ? null : () => _telegramAction('save'),
-                icon: Icon(Icons.save_outlined),
+                icon: const Icon(Icons.save_outlined),
                 label: const Text('Save bot settings'),
               ),
               OutlinedButton.icon(
                 onPressed: _tgBusy || _demo || !_tgConfigured
                     ? null : () => _telegramAction('test'),
-                icon: Icon(Icons.send_outlined),
+                icon: const Icon(Icons.send_outlined),
                 label: const Text('Send test message'),
               ),
               OutlinedButton.icon(
                 onPressed: _tgBusy || _demo || !_tgConfigured
                     ? null : () => _telegramAction('clear'),
-                icon: Icon(Icons.delete_outline),
+                icon: const Icon(Icons.delete_outline),
                 label: const Text('Clear credentials'),
               ),
             ],
@@ -659,13 +665,13 @@ class _LauncherHomeState extends State<LauncherHome> {
             OutlinedButton.icon(
               onPressed: _tgBusy || _demo || !_tgConfigured || _tgPending == 0
                   ? null : () => _telegramAction('retry'),
-              icon: Icon(Icons.refresh_outlined),
+              icon: const Icon(Icons.refresh_outlined),
               label: const Text('Retry pending test'),
             ),
             OutlinedButton.icon(
               onPressed: _tgBusy || _demo || _tgPending == 0
                   ? null : () => _telegramAction('dropQueue'),
-              icon: Icon(Icons.delete_sweep_outlined),
+              icon: const Icon(Icons.delete_sweep_outlined),
               label: const Text('Clear pending tests'),
             ),
           ]),
@@ -716,37 +722,37 @@ class _LauncherHomeState extends State<LauncherHome> {
             children: [
               FilledButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('connect'),
-                icon: Icon(Icons.usb),
+                icon: const Icon(Icons.usb),
                 label: const Text('Connect ADB'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('probe'),
-                icon: Icon(Icons.info_outline),
+                icon: const Icon(Icons.info_outline),
                 label: const Text('Probe Android version'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('soc'),
-                icon: Icon(Icons.battery_full),
+                icon: const Icon(Icons.battery_full),
                 label: const Text('Probe SOC (unverified)'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('firmware'),
-                icon: Icon(Icons.developer_board_outlined),
+                icon: const Icon(Icons.developer_board_outlined),
                 label: const Text('Probe firmware identity (read-only)'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),
-                icon: Icon(Icons.link_off),
+                icon: const Icon(Icons.link_off),
                 label: const Text('Disconnect ADB'),
               ),
               OutlinedButton.icon(
                 onPressed: _adbBusy ? null : _readDiagnostics,
-                icon: Icon(Icons.refresh),
+                icon: const Icon(Icons.refresh),
                 label: const Text('Refresh diagnostics'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : _exportDiagnostics,
-                icon: Icon(Icons.file_download_outlined),
+                icon: const Icon(Icons.file_download_outlined),
                 label: const Text('Export sanitized diagnostics JSON'),
               ),
             ],
@@ -803,7 +809,7 @@ class _LauncherHomeState extends State<LauncherHome> {
         ),
         child: Column(
           children: [
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               Icon(Icons.play_circle_outline),
               SizedBox(width: 10),
               Text('Now playing',
@@ -813,18 +819,18 @@ class _LauncherHomeState extends State<LauncherHome> {
                 child: Center(
                     child: Icon(Icons.music_note_outlined,
                         size: 90, color: _secondary))),
-            Text('No media session',
+            const Text('No media session',
                 style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
             Text('Media player integration is planned',
                 style: TextStyle(color: _secondary, fontSize: 11)),
-            SizedBox(height: 25),
+            const SizedBox(height: 25),
             Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
               Icon(Icons.skip_previous_outlined, color: _secondary),
               Icon(Icons.play_arrow_outlined, color: _secondary),
               Icon(Icons.skip_next_outlined, color: _secondary),
             ]),
-            SizedBox(height: 32),
+            const SizedBox(height: 32),
           ],
         ),
       );

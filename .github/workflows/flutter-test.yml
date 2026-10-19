@@ -2,6 +2,8 @@ name: Flutter and Android checks
 on:
   push:
   pull_request:
+permissions:
+  contents: read
 jobs:
   flutter:
     runs-on: ubuntu-latest
@@ -25,10 +27,46 @@ jobs:
         run: cd android && ./gradlew testDebugUnitTest --no-daemon
       - name: Compile Android debug APK (not production)
         run: flutter build apk --debug
-      - name: Upload diagnostics-only debug APK
+      - name: Verify APK integrity, signature and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=build/app/outputs/flutter-apk/app-debug.apk
+          test -s "$apk"
+          bt="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          "$bt/apksigner" verify --min-sdk-version 29 "$apk"
+          "$bt/aapt" dump badging "$apk" | grep -F "com.ziada.bydsmartlauncher"
+          "$bt/aapt" dump xmltree "$apk" AndroidManifest.xml > /tmp/byd-apk-manifest.txt
+          ! grep -F 'android.intent.category.HOME' /tmp/byd-apk-manifest.txt
+          (cd build/app/outputs/flutter-apk && sha256sum app-debug.apk > SHA256SUMS.txt)
+      - name: Upload parked diagnostics debug APK + SHA256
         uses: actions/upload-artifact@v4
         with:
-          name: byd-smart-launcher-diagnostics-debug
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: byd-smart-launcher-parked-test
+          path: |
+            build/app/outputs/flutter-apk/app-debug.apk
+            build/app/outputs/flutter-apk/SHA256SUMS.txt
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release(test-apk):')
+    needs: flutter
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: byd-smart-launcher-parked-test
+          path: release
+      - name: Verify and publish explicitly marked parking-test prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd release
+          sha256sum -c SHA256SUMS.txt
+          tag="parking-test-${GITHUB_SHA:0:8}"
+          gh release create "$tag"             "app-debug.apk#BYD-Smart-Launcher-debug.apk"             SHA256SUMS.txt             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "BYD Smart Launcher - parked-car diagnostic test ${GITHUB_SHA:0:8}"             --notes "Developer debug-signed diagnostic APK only. NOT an accepted production launcher. Do not set as the OEM HOME app. Unverified firmware/FIDs, camera/automation dispatch and vehicle controls remain disabled. Test only while parked and keep the factory launcher available."             --prerelease
