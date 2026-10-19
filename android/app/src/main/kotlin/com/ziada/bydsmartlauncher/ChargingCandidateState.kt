@@ -22,8 +22,8 @@ internal object ChargingCandidateState {
     )
 
     fun fromRaw(gun: Int?, bms: Int?, type: Int?): Map<String, Any?> {
-        val gunKind = knownGunKinds[gun] ?: "unknown"
-        val bmsPhase = knownBmsPhases[bms] ?: "unknown"
+        val gunKind = gun?.let { knownGunKinds[it] } ?: "unknown"
+        val bmsPhase = bms?.let { knownBmsPhases[it] } ?: "unknown"
         val readingsRecognized = gunKind != "unknown" && bmsPhase != "unknown"
 
         // A disconnected gun alongside "charging" is contradictory. A connected
@@ -32,7 +32,7 @@ internal object ChargingCandidateState {
             !readingsRecognized -> "unknown"
             gun == 1 && bms == 1 -> "conflicting_signals"
             gun == 1 -> "unplugged_candidate"
-            gun in 2..4 && bms == 1 -> "charging_candidate"
+            gun != null && gun in 2..4 && bms == 1 -> "charging_candidate"
             gun in 2..4 && bms == 2 -> "finished_candidate"
             gun in 2..4 && bms == 13 -> "paused_candidate"
             else -> "unknown"
