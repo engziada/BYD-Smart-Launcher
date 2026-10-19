@@ -27,6 +27,27 @@ void main() {
     expect(called, ['adbConnect', 'adbProbe', 'adbProbeFirmware', 'adbProbeSoc', 'adbDisconnect']);
   });
 
+  test('operator-triggered FID discovery routes only to the read-only native method', () async {
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return <String, Object?>{
+        'ok': true, 'status': 'catalog_candidate',
+        'firmwareVerified': false, 'vehicleWriteAuthorized': false,
+      };
+    });
+    const gateway = PlatformVehicleGateway();
+    final discovered = await gateway.probeFidCatalog();
+    expect(discovered['ok'], true);
+    expect(discovered['firmwareVerified'], false);
+    expect(discovered['vehicleWriteAuthorized'], false);
+    expect(calls, ['adbProbeFids']);
+    const demo = DemoVehicleGateway();
+    expect((await demo.probeFidCatalog())['error'], 'demo_only');
+    expect(calls, ['adbProbeFids']);
+  });
+
   test('explicit Telegram save sends token only through native channel', () async {
     String? called;
     Map<Object?, Object?>? params;
