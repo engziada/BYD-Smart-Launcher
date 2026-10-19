@@ -192,6 +192,7 @@ class _LauncherHomeState extends State<LauncherHome> {
         'disconnect' => await _gateway.disconnectAdb(),
         'soc' => await _gateway.probeSoc(),
         'firmware' => await _gateway.probeFirmware(),
+        'fids' => await _gateway.probeFidCatalog(),
         _ => await _gateway.probeAdb(),
       };
       final snapshot = await _gateway.getSnapshot();
@@ -739,6 +740,11 @@ class _LauncherHomeState extends State<LauncherHome> {
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('firmware'),
                 icon: const Icon(Icons.developer_board_outlined),
                 label: const Text('Probe firmware identity (read-only)'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('fids'),
+                icon: const Icon(Icons.manage_search),
+                label: const Text('Discover firmware FIDs (one-shot, read-only)'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),
