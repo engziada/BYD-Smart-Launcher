@@ -775,7 +775,7 @@ class _LauncherHomeState extends State<LauncherHome> {
           color: _surface,
           borderRadius: BorderRadius.circular(22),
         ),
-        child: const Column(
+        child: Column(
           children: [
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               Icon(Icons.play_circle_outline),
