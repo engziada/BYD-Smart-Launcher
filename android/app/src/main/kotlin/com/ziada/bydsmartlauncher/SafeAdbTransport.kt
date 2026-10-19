@@ -167,6 +167,58 @@ internal class SafeAdbTransport(context: Context) {
         }
     }
 
+    /**
+     * Explicitly requested charging-state snapshot. Reflects only allowlisted
+     * BYD SDK constants and makes at most three autoservice GET int calls.
+     * Each sample starts fresh: no stale FID cache, background poll, events or
+     * inferred charge-completed notifications.
+     */
+    @Synchronized
+    fun sampleChargingCandidates(): Map<String, Any?> {
+        fun unavailable(status: String): Map<String, Any?> = mapOf(
+            "ok" to false, "status" to status,
+            "chargeStateCandidate" to "unknown",
+            "firmwareVerified" to false,
+            "automaticEventEligible" to false,
+            "vehicleWriteAuthorized" to false
+        )
+        if (state != "connected" || client?.isConnected() != true) {
+            return unavailable("adb_not_connected")
+        }
+        val command = FidReadOnlyDiscovery.command(appContext.packageCodePath)
+            ?: return unavailable("invalid_apk_path")
+        return try {
+            val active = client ?: return unavailable("adb_not_connected")
+            val reflected = FidReadOnlyDiscovery.parse(active.exec(command))
+            if (!reflected.readyForChargingCandidateProbes) {
+                return unavailable("charging_fids_unavailable")
+            }
+            val catalog = reflected.catalog
+            val device = catalog.deviceOf("CHARGING") ?: return unavailable("charging_device_missing")
+            val gunFid = catalog.fidOf("Charging.CHARGING_GUN_CONNECT_STATE")
+                ?: return unavailable("charging_gun_fid_missing")
+            val bmsFid = catalog.fidOf("Charging.CHARGING_BATTERRY_DEVICE_STATE")
+                ?: return unavailable("charging_bms_fid_missing")
+            val typeFid = catalog.fidOf("Charging.CHARGING_TYPE")
+            val gunRaw = CandidateTelemetry.int(active.exec(
+                "service call autoservice 5 i32 $device i32 $gunFid"
+            ))
+            val bmsRaw = CandidateTelemetry.int(active.exec(
+                "service call autoservice 5 i32 $device i32 $bmsFid"
+            ))
+            val typeRaw = typeFid?.let { fid ->
+                CandidateTelemetry.int(active.exec(
+                    "service call autoservice 5 i32 $device i32 $fid"
+                ))
+            }
+            ChargingCandidateState.fromRaw(gunRaw, bmsRaw, typeRaw)
+                .plus("status" to "candidate_sampled")
+                .plus("catalogResolved" to true)
+        } catch (_: Exception) {
+            unavailable("charging_probe_failed")
+        }
+    }
+
     /** A single fixed read-only autoservice probe; returned SOC is UNVERIFIED for Song Plus. */
     @Synchronized
     fun probeSoc(): Map<String, Any?> {
