@@ -11,7 +11,8 @@
 - [ ] Match firmware permissions/capabilities with stationary car diagnostics
 - [x] Port permitted BYDMate v4.0.1 RSA/TLS ADB handshake, explicit connect/disconnect and read-only probes
 - [x] Add opt-in firmware identity + autoservice presence probe, hash (not expose) build fingerprint
-- [ ] Port helper bootstrap, firmware-resolved FIDs and reconnect monitoring
+- [x] Port BYDMate firmware FID catalog text parser and ambiguity rejection tests (no helper ingestion yet)
+- [ ] Port helper bootstrap, firmware-resolved FID probes and reconnect monitoring
 - [ ] Confirm fresh install, pairing and reboot recovery work with no BYDMate installed
 
 ## M2: Blind spot
