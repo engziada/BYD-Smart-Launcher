@@ -30,7 +30,10 @@ internal object FirmwareDiagnostics {
     }
 
     fun fingerprintDigest(raw: String?): String? {
-        val value = property(raw) ?: return null
+        val value = raw?.trim() ?: return null
+        if (value.length !in 1..250 || value.any { c ->
+            !(c.isLetterOrDigit() || c in "._/:@+-")
+        }) return null
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
         return digest.take(10).joinToString("") { "%02x".format(it) }

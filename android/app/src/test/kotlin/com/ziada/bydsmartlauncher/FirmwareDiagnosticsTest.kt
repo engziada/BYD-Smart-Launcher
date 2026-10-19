@@ -24,9 +24,8 @@ class FirmwareDiagnosticsTest {
         assertNull(FirmwareDiagnostics.sdkInt("-1"))
         assertNull(FirmwareDiagnostics.sdkInt("99999999999"))
         val fingerprint = "BYD/example:14/ABCD/user:release-keys"
-        val hash = FirmwareDiagnostics.fingerprintDigest(fingerprint)
-        assertNotNull(hash)
-        assertEquals(20, hash!!.length)
+        val hash = requireNotNull(FirmwareDiagnostics.fingerprintDigest(fingerprint))
+        assertEquals(20, hash.length)
         assertFalse(hash.contains(fingerprint))
     }
 }
