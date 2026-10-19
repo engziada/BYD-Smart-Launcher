@@ -25,10 +25,17 @@ internal class DiagnosticReportWriter(private val context: Context) {
         private val FID_KEYS = setOf(
             "ok", "status", "source", "symbolCount", "deviceCount",
             "statisticDeviceCandidate", "socFidCandidate", "odometerFidCandidate",
+            "chargingDeviceCandidate", "gunFidCandidate", "bmsFidCandidate", "chargeTypeFidCandidate",
             "energyFidCandidate", "lightDeviceCandidate", "turnSignalFidCandidate",
             "firmwareVerified", "helperPersistent", "vehicleWriteAuthorized",
             "socCatalogCandidatePercent", "odometerCatalogRawCandidate",
             "catalogReadsOk", "odometerCatalogScaleVerified"
+        )
+        private val CHARGING_KEYS = setOf(
+            "ok", "status", "capturedAtEpochMs", "catalogResolved", "gunStateRaw", "gunKindCandidate",
+            "bmsStateRaw", "bmsPhaseCandidate", "chargingTypeRaw",
+            "chargeStateCandidate", "source", "firmwareVerified",
+            "completionConfirmed", "automaticEventEligible", "vehicleWriteAuthorized"
         )
         private val TELEMETRY_KEYS = setOf(
             "ok", "socCandidatePercent", "energyCandidateKwh", "odometerCandidateKm",
@@ -58,19 +65,21 @@ internal class DiagnosticReportWriter(private val context: Context) {
         transport: Map<String, Any?>,
         firmware: Map<String, Any?>,
         telemetry: Map<String, Any?>,
-        fidDiscovery: Map<String, Any?> = emptyMap()
+        fidDiscovery: Map<String, Any?> = emptyMap(),
+        charging: Map<String, Any?> = emptyMap()
     ): Map<String, Any?> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return mapOf("ok" to false, "error" to "android_10_required")
         }
         val document = JSONObject()
-            .put("schema", 2)
+            .put("schema", 3)
             .put("exportedAtUtc", Instant.now().toString())
             .put("verification", "READ_ONLY_UNVERIFIED_NO_VEHICLE_WRITES")
             .put("transport", safeFields(transport, TRANSPORT_KEYS))
             .put("firmware", safeFields(firmware, FIRMWARE_KEYS))
             .put("telemetryCandidate", safeFields(telemetry, TELEMETRY_KEYS))
             .put("fidCatalogCandidate", safeFields(fidDiscovery, FID_KEYS))
+            .put("chargingCandidate", safeFields(charging, CHARGING_KEYS))
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "byd-diagnostics-${System.currentTimeMillis()}.json")

@@ -87,6 +87,7 @@ class _LauncherHomeState extends State<LauncherHome> {
   LauncherPage _page = LauncherPage.status;
   bool _demo = false;
   String _diagnostics = 'Vehicle diagnostics not requested';
+  Map<Object?, Object?> _chargingCandidate = {};
   bool _adbBusy = false;
   final _tgToken = TextEditingController();
   final _tgChat = TextEditingController();
@@ -144,6 +145,7 @@ class _LauncherHomeState extends State<LauncherHome> {
           ? const DemoVehicleGateway()
           : const PlatformVehicleGateway();
       _snapshot = VehicleSnapshot.unavailable();
+      _chargingCandidate = {};
     });
     await _connect();
     await _loadAutomationStatus();
@@ -193,14 +195,26 @@ class _LauncherHomeState extends State<LauncherHome> {
         'soc' => await _gateway.probeSoc(),
         'firmware' => await _gateway.probeFirmware(),
         'fids' => await _gateway.probeFidCatalog(),
+        'charging' => await _gateway.sampleChargingCandidates(),
         _ => await _gateway.probeAdb(),
       };
       final snapshot = await _gateway.getSnapshot();
       if (mounted) {
         setState(() {
           _snapshot = snapshot;
-          _diagnostics =
-              response.entries.map((e) => '${e.key}: ${e.value}').join(' • ');
+          if (action == 'charging') {
+            _chargingCandidate = response;
+          } else if (action == 'disconnect' || action == 'connect') {
+            _chargingCandidate = {};
+          }
+          _diagnostics = action == 'charging'
+              ? response['ok'] == true
+                  ? 'Charging candidate sampled. Not verified; '
+                    'no charge-complete event or Telegram automation is enabled.'
+                  : 'Charging diagnostic unavailable: '
+                    '${response['status'] ?? response['error'] ?? 'unknown'}. '
+                    'No charging state was confirmed.'
+              : response.entries.map((e) => '${e.key}: ${e.value}').join(' • ');
         });
       }
     } catch (error) {
@@ -715,6 +729,17 @@ class _LauncherHomeState extends State<LauncherHome> {
               'BYD vehicle controls or camera feeds.'),
           const SizedBox(height: 8),
           Text(_diagnostics),
+          if (_chargingCandidate.isNotEmpty)
+            _info(
+              'Charging diagnostic — UNVERIFIED',
+              'Connector: ${_chargingCandidate['gunKindCandidate'] ?? 'unknown'} '
+              '(raw ${_chargingCandidate['gunStateRaw'] ?? '—'}). '
+              'BMS: ${_chargingCandidate['bmsPhaseCandidate'] ?? 'unknown'} '
+              '(raw ${_chargingCandidate['bmsStateRaw'] ?? '—'}). '
+              'Hypothesis: ${_chargingCandidate['chargeStateCandidate'] ?? 'unknown'}. '
+              'No completion alerts are authorized.',
+              Icons.battery_charging_full_outlined,
+            ),
           if (_adbBusy) const LinearProgressIndicator(),
           const SizedBox(height: 8),
           Wrap(
@@ -745,6 +770,11 @@ class _LauncherHomeState extends State<LauncherHome> {
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('fids'),
                 icon: const Icon(Icons.manage_search),
                 label: const Text('Discover firmware FIDs (one-shot, read-only)'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('charging'),
+                icon: const Icon(Icons.ev_station_outlined),
+                label: const Text('Read charging state once (read-only candidate)'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),

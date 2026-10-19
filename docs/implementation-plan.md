@@ -12,6 +12,10 @@
 - [x] Port permitted BYDMate v4.0.1 RSA/TLS ADB handshake, explicit connect/disconnect and read-only probes
 - [x] Add opt-in firmware identity + autoservice presence probe, hash (not expose) build fingerprint
 - [x] Port BYDMate firmware FID catalog text parser and ambiguity rejection tests (no helper ingestion yet)
+- [x] One-shot read-only firmware FID reflection and SOC/odometer catalog-address probes, with OEM matching observations (not a continuous live stream)
+- [x] Versioned APK filename in CI and version bump to 0.1.1+2
+- [x] Implement manual charging FID discovery and charge-gun/BMS-state **candidate** sampling, default-off for all automatic events
+- [ ] Validate charging-state candidate enums against the Song Plus OEM display, at disconnected, charging and finished states
 - [ ] Port helper bootstrap, firmware-resolved FID probes and reconnect monitoring
 - [ ] Confirm fresh install, pairing and reboot recovery work with no BYDMate installed
 
@@ -42,6 +46,7 @@
 - [x] Port BYDMate's pure power-off transition/deduplication policy and JVM tests (no live events)
 - [x] Add single-message persisted diagnostic-test outbox, bounded manual retry, duplicate-request collapse and queue clearing
 - [ ] Add helper-driven power on/off reports, durable event outbox, automatic retry and verified event deduplication
+- [ ] Separate OEM-confirmed charging completion from mere 100% SOC / plug-connected state before any automated Telegram alert
 - [ ] Validate offline/retry/reboot/power cycle end-to-end
 - [ ] Never log tokens, chat identifiers or private messages
 

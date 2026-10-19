@@ -48,6 +48,33 @@ void main() {
     expect(calls, ['adbProbeFids']);
   });
 
+  test('charging diagnostic is an explicit read-only call; demo never probes car', () async {
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return <String, Object?>{
+        'ok': true,
+        'gunKindCandidate': 'dc_candidate',
+        'chargeStateCandidate': 'charging_candidate',
+        'automaticEventEligible': false,
+        'completionConfirmed': false,
+        'vehicleWriteAuthorized': false,
+      };
+    });
+    const gateway = PlatformVehicleGateway();
+    final snapshot = await gateway.sampleChargingCandidates();
+    expect(snapshot['gunKindCandidate'], 'dc_candidate');
+    expect(snapshot['automaticEventEligible'], false);
+    expect(snapshot['completionConfirmed'], false);
+    expect(calls, ['chargingSample']);
+    const demo = DemoVehicleGateway();
+    final refused = await demo.sampleChargingCandidates();
+    expect(refused['status'], 'demo_only');
+    expect(refused['automaticEventEligible'], false);
+    expect(calls, ['chargingSample']);
+  });
+
   test('explicit Telegram save sends token only through native channel', () async {
     String? called;
     Map<Object?, Object?>? params;
