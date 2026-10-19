@@ -214,6 +214,7 @@ internal class SafeAdbTransport(context: Context) {
             ChargingCandidateState.fromRaw(gunRaw, bmsRaw, typeRaw)
                 .plus("status" to "candidate_sampled")
                 .plus("catalogResolved" to true)
+                .plus("capturedAtEpochMs" to System.currentTimeMillis())
         } catch (_: Exception) {
             unavailable("charging_probe_failed")
         }
