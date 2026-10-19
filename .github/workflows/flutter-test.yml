@@ -38,13 +38,22 @@ jobs:
           "$bt/aapt" dump badging "$apk" | grep -F "com.ziada.bydsmartlauncher"
           "$bt/aapt" dump xmltree "$apk" AndroidManifest.xml > /tmp/byd-apk-manifest.txt
           ! grep -F 'android.intent.category.HOME' /tmp/byd-apk-manifest.txt
-          (cd build/app/outputs/flutter-apk && sha256sum app-debug.apk > SHA256SUMS.txt)
+          version_line="$(awk '/^version: / {print $2}' pubspec.yaml)"
+          if [[ ! "$version_line" =~ ^([0-9]+[.][0-9]+[.][0-9]+)[+]([0-9]+)$ ]]; then
+            echo "Invalid pubspec.yaml version: $version_line (expected MAJOR.MINOR.PATCH+BUILD)" >&2
+            exit 1
+          fi
+          version="${BASH_REMATCH[1]}"
+          build_number="${BASH_REMATCH[2]}"
+          filename="BYD-Smart-Launcher-v${version}-build${build_number}-debug-${GITHUB_SHA:0:8}.apk"
+          cp "$apk" "build/app/outputs/flutter-apk/$filename"
+          (cd build/app/outputs/flutter-apk && sha256sum "$filename" > SHA256SUMS.txt)
       - name: Upload parked diagnostics debug APK + SHA256
         uses: actions/upload-artifact@v4
         with:
           name: byd-smart-launcher-parked-test
           path: |
-            build/app/outputs/flutter-apk/app-debug.apk
+            build/app/outputs/flutter-apk/BYD-Smart-Launcher-v*-build*-debug-*.apk
             build/app/outputs/flutter-apk/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
@@ -69,4 +78,16 @@ jobs:
           cd release
           sha256sum -c SHA256SUMS.txt
           tag="parking-test-${GITHUB_SHA:0:8}"
-          gh release create "$tag"             "app-debug.apk#BYD-Smart-Launcher-debug.apk"             SHA256SUMS.txt             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "BYD Smart Launcher - parked-car diagnostic test ${GITHUB_SHA:0:8}"             --notes "Developer debug-signed diagnostic APK only. NOT an accepted production launcher. Do not set as the OEM HOME app. Unverified firmware/FIDs, camera/automation dispatch and vehicle controls remain disabled. Test only while parked and keep the factory launcher available."             --prerelease
+          files=(BYD-Smart-Launcher-v*-build*-debug-*.apk)
+          if (( ${#files[@]} != 1 )) || [[ ! -f "${files[0]}" ]]; then
+            echo "Expected exactly one versioned APK in release artifact" >&2
+            exit 1
+          fi
+          gh release create "$tag" \
+            "${files[0]}" \
+            SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "BYD Smart Launcher - ${files[0]}" \
+            --notes "Developer debug-signed diagnostic APK only. NOT an accepted production launcher. Do not set as the OEM HOME app. Unverified firmware/FIDs, camera/automation dispatch and vehicle controls remain disabled. Test only while parked and keep the factory launcher available." \
+            --prerelease
