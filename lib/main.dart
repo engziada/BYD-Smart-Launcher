@@ -335,8 +335,7 @@ class _LauncherHomeState extends State<LauncherHome> {
                           : result['sent'] == false
                               ? 'No pending messages to retry.'
                               : 'Test message confirmed by Telegram.')
-              : 'Telegram: ${result['error'] ?? 'operation_failed'}' +
-                  (_tgPending > 0 ? ' (pending: $_tgPending)' : '');
+              : 'Telegram: ${result['error'] ?? 'operation_failed'}${_tgPending > 0 ? ' (pending: $_tgPending)' : ''}';
         });
         if (action == 'save' && result['ok'] == true) {
           _tgToken.clear();
