@@ -21,9 +21,10 @@ void main() {
     const gateway = PlatformVehicleGateway();
     expect((await gateway.connectAdb())['adb'], 'not_connected');
     expect((await gateway.probeAdb())['adb'], 'not_connected');
+    expect((await gateway.probeFirmware())['adb'], 'not_connected');
     expect((await gateway.probeSoc())['adb'], 'not_connected');
     expect((await gateway.disconnectAdb())['adb'], 'not_connected');
-    expect(called, ['adbConnect', 'adbProbe', 'adbProbeSoc', 'adbDisconnect']);
+    expect(called, ['adbConnect', 'adbProbe', 'adbProbeFirmware', 'adbProbeSoc', 'adbDisconnect']);
   });
 
   test('explicit Telegram save sends token only through native channel', () async {
@@ -110,6 +111,7 @@ void main() {
     const demo = DemoVehicleGateway();
     expect((await demo.connectAdb())['error'], 'demo_only');
     expect((await demo.probeAdb())['error'], 'demo_only');
+    expect((await demo.probeFirmware())['error'], 'demo_only');
     expect((await demo.probeSoc())['error'], 'demo_only');
   });
 }

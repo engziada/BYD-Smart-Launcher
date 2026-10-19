@@ -160,6 +160,7 @@ class _LauncherHomeState extends State<LauncherHome> {
         'connect' => await _gateway.connectAdb(),
         'disconnect' => await _gateway.disconnectAdb(),
         'soc' => await _gateway.probeSoc(),
+        'firmware' => await _gateway.probeFirmware(),
         _ => await _gateway.probeAdb(),
       };
       final snapshot = await _gateway.getSnapshot();
@@ -680,6 +681,11 @@ class _LauncherHomeState extends State<LauncherHome> {
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('soc'),
                 icon: const Icon(Icons.battery_full),
                 label: const Text('Probe SOC (unverified)'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('firmware'),
+                icon: const Icon(Icons.developer_board_outlined),
+                label: const Text('Probe firmware identity (read-only)'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),

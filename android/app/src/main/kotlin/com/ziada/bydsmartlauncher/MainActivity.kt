@@ -90,12 +90,14 @@ class MainActivity : FlutterActivity() {
                             mainHandler.post { result.success(response) }
                         }
                     }
-                    "adbConnect", "adbDisconnect", "adbProbe", "adbProbeSoc", "telemetrySample" -> {
+                    "adbConnect", "adbDisconnect", "adbProbe", "adbProbeSoc",
+                    "adbProbeFirmware", "telemetrySample" -> {
                         worker.execute {
                             val response = when (call.method) {
                                 "adbConnect" -> adb.connect()
                                 "adbDisconnect" -> adb.disconnect()
                                 "adbProbeSoc" -> adb.probeSoc()
+                                "adbProbeFirmware" -> adb.probeFirmware()
                                 "telemetrySample" -> adb.sampleTelemetry()
                                 else -> adb.probe()
                             }

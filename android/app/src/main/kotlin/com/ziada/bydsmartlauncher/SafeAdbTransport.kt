@@ -140,6 +140,35 @@ internal class SafeAdbTransport(context: Context) {
         )
     }
 
+    /** Operator-invoked, FIXED read-only property and service liveness checks. */
+    @Synchronized
+    fun probeFirmware(): Map<String, Any?> {
+        if (state != "connected" || client?.isConnected() != true) {
+            return mapOf("ok" to false, "reason" to "adb_not_connected")
+        }
+        val active = client ?: return mapOf("ok" to false, "reason" to "adb_not_connected")
+        val model = FirmwareDiagnostics.property(active.exec("getprop ro.product.model"))
+        val manufacturer = FirmwareDiagnostics.property(active.exec("getprop ro.product.manufacturer"))
+        val sdk = FirmwareDiagnostics.sdkInt(active.exec("getprop ro.build.version.sdk"))
+        val fingerprint = FirmwareDiagnostics.fingerprintDigest(
+            active.exec("getprop ro.build.fingerprint")
+        )
+        val serviceAvailable = FirmwareDiagnostics.servicePresent(
+            active.exec("service check autoservice")
+        )
+        return mapOf(
+            "ok" to (model != null || sdk != null),
+            "model" to model,
+            "manufacturer" to manufacturer,
+            "androidSdk" to sdk,
+            "fingerprintHashPrefix" to fingerprint,
+            "autoservicePresent" to serviceAvailable,
+            "compatibleAndVerified" to false,
+            "vehicleWriteAuthorized" to false,
+            "hint" to "compare_properties_with_stock_firmware_then_test_FID_catalog",
+        )
+    }
+
     /** Limited, READ-ONLY environment probe. Never pass arbitrary UI-provided commands here. */
     @Synchronized
     fun probe(): Map<String, Any?> {
