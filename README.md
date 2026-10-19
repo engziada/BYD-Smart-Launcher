@@ -33,7 +33,15 @@ In the **Real Range** tab, enter the verified usable battery capacity in kWh. Wh
 
 ## Automation status
 
-A **side-effect-free verified-only trigger evaluator** supports testable SOC threshold edges, power on/off edges, once-per-trip rules, cooldown, and stale/unverified suppression. It is not connected to the unverified ADB FIDs or the Telegram sender. Rule management, persistence, helper-derived power state and actual notifications still require development and on-car acceptance. The pure BYDMate power-off deduplication policy is included separately, without a live event source.
+A **side-effect-free verified-only trigger evaluator** supports SOC threshold edges, power on/off edges, once-per-trip rules, cooldown, and stale/unverified suppression. A Flutter rule editor persists notification-only drafts on device, with a global default-OFF master switch and per-rule toggles. **Even when toggled on, these rules do not dispatch** in the current APK. It is not connected to the unverified ADB FIDs or the Telegram sender. Helper-derived power state, rule journal, background dispatcher and actual automatic notifications still require development and on-car acceptance. The pure BYDMate power-off deduplication policy is included separately, without a live event source.
+
+## Telegram diagnostics
+
+Telegram bot token/chat ID are stored with Android Keystore AES-GCM (app backups disabled). A test message is persisted locally before HTTPS send. A failed test remains in a bounded, deduplicated outbox, with **manual** retry and queue clearing; automatic retry is not implemented. The event is a fixed TEST type only. Never share a bot token, even in issue screenshots.
+
+## Firmware read-only discovery
+
+**Settings → Probe firmware identity** reads fixed Android `getprop` fields and `service check autoservice`, hashes rather than exposes the full firmware fingerprint, and always reports `compatibleAndVerified=false`. This does not unlock any camera or vehicle write capability.
 
 ## Safety / acceptance
 No vehicle writes exposed until the car/firmware is fingerprinted, allowlist verified, stationary gating passed, and explicit per-action confirmation tested. OEM reversing and 360-degree camera always override aftermarket overlays. Test on a stationary, secured car first.

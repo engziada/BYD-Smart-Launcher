@@ -9,7 +9,9 @@
 - [x] Independent JVM range and camera safety policies + 16 smoke checks
 - [x] Build Android/Flutter diagnostic APK and run Flutter tests in CI
 - [ ] Match firmware permissions/capabilities with stationary car diagnostics
-- [ ] Port permitted BYDMate v4.0.1 ADB auth, reconnect, helper bootstrap
+- [x] Port permitted BYDMate v4.0.1 RSA/TLS ADB handshake, explicit connect/disconnect and read-only probes
+- [x] Add opt-in firmware identity + autoservice presence probe, hash (not expose) build fingerprint
+- [ ] Port helper bootstrap, firmware-resolved FIDs and reconnect monitoring
 - [ ] Confirm fresh install, pairing and reboot recovery work with no BYDMate installed
 
 ## M2: Blind spot
@@ -28,15 +30,17 @@
 
 ## M4: Automations
 - [x] Implement a pure, verified-only trigger evaluator (SOC threshold / power edges, cooldown, once-per-trip), native tests
-- [ ] Port full WHEN / IF / THEN local rule database, migrations, journal, UI and guarded dispatcher
+- [x] Create local notification-rule editor and versioned rule definitions with default-off master enable and per-rule toggles
+- [ ] Port full durable rule journal, verified-input dispatcher, conditions, migrations and audit trail
 - [ ] Implement non-actuating rules first: notifications
 - [ ] Verify deduplication, once-per-trip, restart and user kill switch
 - [ ] Controlled gating before any comfort writes
 
 ## M5: Telegram
-- [ ] Add on-device bot settings with protected credential storage
+- [x] Add on-device bot settings with Android Keystore AES-GCM encryption and explicit HTTPS test
 - [x] Port BYDMate's pure power-off transition/deduplication policy and JVM tests (no live events)
-- [ ] Port report, durable queue, and power-off helper protocol with verified native events
+- [x] Add single-message persisted diagnostic-test outbox, bounded manual retry, duplicate-request collapse and queue clearing
+- [ ] Add helper-driven power on/off reports, durable event outbox, automatic retry and verified event deduplication
 - [ ] Validate offline/retry/reboot/power cycle end-to-end
 - [ ] Never log tokens, chat identifiers or private messages
 
