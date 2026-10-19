@@ -30,3 +30,11 @@
 - Status was empty and top bar displayed Vehicle disconnected despite ADB connectivity. UI now distinguishes ADB transport from unverified vehicle telemetry and exposes parked-only explicit candidate sampling in Status. This does NOT enable verified live snapshots.
 - Light theme, helper installation, blind-spot camera, rule dispatch, automatic Telegram events and controls remain pending.
 - On-device re-test and Flutter analyze/test/build are pending; no APK acceptance claimed.
+
+## 2026-10-19 parked-car re-test: owner-confirmed SOC and odometer
+- Diagnostic JSON exported at 2026-10-19 14:06:02 UTC reported ADB `connected`, Android 12 / SDK 32, model `DiLink5.0 For BYD AUTO`, `autoservicePresent=true`, `helper=not_installed`, `compatibleAndVerified=false`, `vehicleTelemetry=not_implemented`, and `writeEnabled=false`.
+- Read-only fallback sample: `socCandidatePercent=35`, `odometerCandidateKm=41936.1`, `energyCandidateKwh=7134.80029296875`, `sampleCount=1`, `windowDistanceKm=0`, `firmwareVerified=false`, `reason=requires_firmware_validation`.
+- **Owner directly confirmed that 35% SOC and approximately 41,936 km odometer matched the factory BYD display at the time of that sample.** This validates two readings in that single parked observation only; the odometer fallback scaling assumption still references Leopard 3 and must be verified more broadly.
+- Energy counter meaning, units, scale, and whether it can be used for consumption remain **unverified**. A single sample at zero window distance cannot yield a real-range estimate.
+- CI run [#53](https://github.com/engziada/BYD-Smart-Launcher/actions/runs/39220577054) succeeded with Flutter analysis/tests, Android native unit tests, APK build, signing/package verification and confirmation the app does not register as the OEM HOME launcher. **Successful CI and matched stationary values do not establish real-time telemetry, automatic Telegram dispatch, functional blind-spot camera, or vehicle-control safety.**
+- Next required technical gate: opt-in firmware-specific FID catalog discovery with read-only helper/probe, repeated independent comparisons to OEM display, safe restart/reconnect tests, and evidence before enabling any automated camera/rule/control behavior. No private identifiers, keys, or raw diagnostic fingerprints are committed.
