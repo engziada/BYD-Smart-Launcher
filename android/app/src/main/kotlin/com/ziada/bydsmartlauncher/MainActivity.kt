@@ -21,6 +21,8 @@ class MainActivity : FlutterActivity() {
     private val ruleStore by lazy { LocalAutomationRepository(applicationContext) }
     private val methods = "com.ziada.byd_smart_launcher/vehicle"
     private val events = "com.ziada.byd_smart_launcher/telemetry"
+    @Volatile private var lastFirmwareProbe: Map<String, Any?> = emptyMap()
+    @Volatile private var lastTelemetrySample: Map<String, Any?> = emptyMap()
 
     private fun snapshot(): Map<String, Any?> = mapOf(
         "connected" to false, // ADB != verified live BYD car telemetry
@@ -44,6 +46,18 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "getSnapshot" -> result.success(snapshot())
                     "getDiagnostics" -> result.success(adb.diagnostics())
+                    "diagnosticsExport" -> {
+                        worker.execute {
+                            val response = try {
+                                DiagnosticReportWriter(applicationContext).save(
+                                    adb.diagnostics(), lastFirmwareProbe, lastTelemetrySample
+                                )
+                            } catch (_: Exception) {
+                                mapOf("ok" to false, "error" to "export_failed")
+                            }
+                            mainHandler.post { result.success(response) }
+                        }
+                    }
                     "getCapabilities" -> result.success(mapOf(
                         "adb" to (adb.transportState == "connected"),
                         "blindSpot" to false, "telegram" to false,
@@ -97,8 +111,8 @@ class MainActivity : FlutterActivity() {
                                 "adbConnect" -> adb.connect()
                                 "adbDisconnect" -> adb.disconnect()
                                 "adbProbeSoc" -> adb.probeSoc()
-                                "adbProbeFirmware" -> adb.probeFirmware()
-                                "telemetrySample" -> adb.sampleTelemetry()
+                                "adbProbeFirmware" -> adb.probeFirmware().also { lastFirmwareProbe = it }
+                                "telemetrySample" -> adb.sampleTelemetry().also { lastTelemetrySample = it }
                                 else -> adb.probe()
                             }
                             mainHandler.post { result.success(response) }
