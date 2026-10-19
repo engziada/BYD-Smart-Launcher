@@ -139,7 +139,28 @@ internal class SafeAdbTransport(context: Context) {
             ?: return mapOf("ok" to false, "status" to "invalid_apk_path",
                 "firmwareVerified" to false, "vehicleWriteAuthorized" to false)
         return try {
-            FidReadOnlyDiscovery.parse(client?.exec(command)).diagnostics()
+            val active = client ?: return mapOf("ok" to false, "status" to "adb_not_connected")
+            val discovered = FidReadOnlyDiscovery.parse(active.exec(command))
+            val info = discovered.diagnostics().toMutableMap()
+            if (!discovered.readyForCandidateProbes) return info
+
+            // Dynamic SDK addresses are NOT permission or unit validation. These are
+            // one-shot GET transactions only (5 = getInt, 7 = getFloat).
+            val device = discovered.catalog.deviceOf("STATISTIC")!!
+            val socFid = discovered.catalog.fidOf("Statistic.STATISTIC_ELEC_PERCENTAGE")!!
+            val mileageFid = discovered.catalog.fidOf("Statistic.STATISTIC_TOTAL_MILEAGE")!!
+            val soc = CandidateTelemetry.soc(active.exec(
+                "service call autoservice 7 i32 $device i32 $socFid"))
+            val mileageRaw = CandidateTelemetry.int(active.exec(
+                "service call autoservice 5 i32 $device i32 $mileageFid"))
+
+            info["socCatalogCandidatePercent"] = soc
+            // Raw integer only. The current fallback uses 0.1 km/tick; catalog
+            // addresses on some Song Plus firmwares use 1 km/tick. NO guessed scale.
+            info["odometerCatalogRawCandidate"] = mileageRaw
+            info["catalogReadsOk"] = soc != null && mileageRaw != null
+            info["odometerCatalogScaleVerified"] = false
+            info
         } catch (_: Exception) {
             mapOf("ok" to false, "status" to "firmware_probe_failed",
                 "firmwareVerified" to false, "vehicleWriteAuthorized" to false)
