@@ -112,6 +112,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 20));
     expect(sampleCount, 1);
+    // In a paused lifecycle the test binding may hide the inactive Flutter view.
+    // Resume WITHOUT user re-enabling telemetry; the timer must remain stopped.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
     expect(find.text('Start read-only dashboard'), findsOneWidget);
     expect(find.textContaining('left the foreground'), findsOneWidget);
   });
