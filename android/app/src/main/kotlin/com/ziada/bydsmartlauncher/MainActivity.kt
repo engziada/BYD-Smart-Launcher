@@ -108,7 +108,7 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     "adbConnect", "adbDisconnect", "adbProbe", "adbProbeSoc",
-                    "adbProbeFirmware", "telemetrySample", "adbProbeFids",
+                    "adbProbeFirmware", "telemetrySample", "dashboardSample", "adbProbeFids",
                     "chargingSample" -> {
                         worker.execute {
                             val response = when (call.method) {
@@ -125,6 +125,7 @@ class MainActivity : FlutterActivity() {
                                 "adbProbeFids" -> adb.discoverFidCatalog().also { lastFidDiscovery = it }
                                 "chargingSample" -> adb.sampleChargingCandidates().also { lastChargingSample = it }
                                 "telemetrySample" -> adb.sampleTelemetry().also { lastTelemetrySample = it }
+                                "dashboardSample" -> adb.sampleDashboardCandidates().also { lastTelemetrySample = it }
                                 else -> adb.probe()
                             }
                             mainHandler.post { result.success(response) }
