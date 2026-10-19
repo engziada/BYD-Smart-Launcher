@@ -212,7 +212,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         _dashboardNotice = 'Reading diagnostics…';
       });
       await _pollDashboard(session);
-      if (!mounted || session != _dashboardSession || !_dashboardEnabled) return;
+      if (!mounted || session != _dashboardSession || !_dashboardEnabled) {
+        return;
+      }
       _dashboardTimer = Timer.periodic(
         const Duration(seconds: 15), (_) => _pollDashboard(session));
     } catch (_) {
@@ -464,13 +466,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     } catch (_) {
       if (mounted) {
         setState(() {
-        _rangeCandidate = {};
-        _dashboardSampledAt = null;
-        _dashboardNotice = 'Read-only sample unavailable.';
+          _rangeCandidate = {};
+          _dashboardSampledAt = null;
+          _dashboardNotice = 'Read-only sample unavailable.';
         });
       }
     } finally {
-      if (mounted) setState(() => _rangeBusy = false);
+      if (mounted) {
+        setState(() => _rangeBusy = false);
+      }
     }
   }
 
