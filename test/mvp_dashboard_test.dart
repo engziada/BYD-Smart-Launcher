@@ -36,12 +36,11 @@ void main() {
             'source': 'unavailable',
             'capturedAtEpochMs': 0,
           };
-        case 'telemetrySample':
+        case 'dashboardSample':
           return <String, Object?>{
             'ok': true,
             'socCandidatePercent': 73.0,
             'odometerCandidateKm': 42010.6,
-            'energyCandidateKwh': 7145.9,
             'firmwareVerified': false,
           };
         default:
@@ -53,7 +52,7 @@ void main() {
     await tester.pump();
     expect(find.text('Vehicle dashboard — MVP preview'), findsOneWidget);
     expect(find.text('Start read-only dashboard'), findsOneWidget);
-    expect(calls.where((m) => m == 'telemetrySample'), isEmpty);
+    expect(calls.where((m) => m == 'dashboardSample'), isEmpty);
 
     await tester.ensureVisible(find.text('Start read-only dashboard'));
     await tester.tap(find.text('Start read-only dashboard'));
@@ -61,20 +60,20 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(calls.where((m) => m == 'adbConnect').length, 1);
-    expect(calls.where((m) => m == 'telemetrySample').length, 1);
+    expect(calls.where((m) => m == 'dashboardSample').length, 1);
     expect(find.text('73 %'), findsOneWidget);
     expect(find.text('42010.6 km'), findsOneWidget);
     expect(find.text('Stop updates'), findsOneWidget);
 
     await tester.pump(const Duration(seconds: 16));
     await tester.pump();
-    expect(calls.where((m) => m == 'telemetrySample').length, 2);
+    expect(calls.where((m) => m == 'dashboardSample').length, 2);
 
     await tester.tap(find.text('Stop updates'));
     await tester.pump();
     expect(find.text('Start read-only dashboard'), findsOneWidget);
     await tester.pump(const Duration(seconds: 20));
-    expect(calls.where((m) => m == 'telemetrySample').length, 2);
+    expect(calls.where((m) => m == 'dashboardSample').length, 2);
     expect(find.textContaining('updates STOPPED'), findsOneWidget);
   });
 
@@ -90,7 +89,7 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
       if (call.method == 'adbConnect') return {'adb': 'connected'};
-      if (call.method == 'telemetrySample') {
+      if (call.method == 'dashboardSample') {
         sampleCount++;
         return {
           'ok': true,
