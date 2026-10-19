@@ -228,7 +228,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
 
   Future<void> _pollDashboard(int session) async {
     if (!mounted || !_dashboardEnabled || _demo ||
-        session != _dashboardSession || _rangeBusy || _adbBusy) return;
+        session != _dashboardSession || _rangeBusy || _adbBusy) {
+      return;
+    }
     setState(() => _rangeBusy = true);
     try {
       final result = await _gateway.sampleDashboardCandidates();
@@ -261,7 +263,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         });
       }
     } finally {
-      if (mounted) setState(() => _rangeBusy = false);
+      if (mounted) {
+        setState(() => _rangeBusy = false);
+      }
     }
   }
 
@@ -440,11 +444,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
       await _pollDashboard(_dashboardSession);
       return;
     }
-    if (_rangeBusy || _demo || _dashboardStarting) return;
+    if (_rangeBusy || _demo || _dashboardStarting) {
+      return;
+    }
     setState(() => _rangeBusy = true);
     try {
       final result = await _gateway.sampleDashboardCandidates();
-      if (!mounted || _demo) return;
+      if (!mounted || _demo) {
+        return;
+      }
       setState(() {
         _rangeCandidate = result['ok'] == true ? result : {};
         _dashboardSampledAt = result['ok'] == true ? DateTime.now() : null;
@@ -454,11 +462,13 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               '${result['reason'] ?? result['error'] ?? 'unknown'}.';
       });
     } catch (_) {
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _rangeCandidate = {};
         _dashboardSampledAt = null;
         _dashboardNotice = 'Read-only sample unavailable.';
-      });
+        });
+      }
     } finally {
       if (mounted) setState(() => _rangeBusy = false);
     }
