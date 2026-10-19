@@ -102,6 +102,22 @@ void main() {
     expect(methods, ['telegramOutboxStatus', 'telegramRetry', 'telegramClearPending']);
   });
 
+  test('diagnostic export is explicit and demo never writes a report', () async {
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return <String, Object?>{'ok': true, 'location': 'Downloads/BYD-Smart-Launcher'};
+    });
+    const gateway = PlatformVehicleGateway();
+    final response = await gateway.exportDiagnostics();
+    expect(response['ok'], true);
+    expect(calls, ['diagnosticsExport']);
+    const demo = DemoVehicleGateway();
+    expect((await demo.exportDiagnostics())['error'], 'demo_only');
+    expect(calls, ['diagnosticsExport']);
+  });
+
   test('missing Android plugin returns an explicit ADB unavailable error', () async {
     const gateway = PlatformVehicleGateway();
     expect((await gateway.connectAdb())['error'], 'not_implemented');
