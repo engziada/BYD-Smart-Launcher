@@ -22,6 +22,7 @@ object FidReflectionProbe {
             val constants = Class.forName("android.hardware.bydauto.BYDAutoConstants")
             printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_STATISTIC")
             printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_LIGHT")
+            printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_CHARGING")
 
             val features = Class.forName("android.hardware.bydauto.BYDAutoFeatureIds")
             val byName = features.declaredClasses.associateBy { it.simpleName }
@@ -32,6 +33,14 @@ object FidReflectionProbe {
                     "STATISTIC_TOTAL_MILEAGE",
                     "STATISTIC_TOTAL_ELEC_CONSUMPTION"
                 )) printInt(statistic, "Statistic", name)
+            }
+            val charging = byName["Charging"]
+            if (charging != null) {
+                for (name in listOf(
+                    "CHARGING_GUN_CONNECT_STATE",
+                    "CHARGING_BATTERRY_DEVICE_STATE",
+                    "CHARGING_TYPE"
+                )) printInt(charging, "Charging", name)
             }
             val light = byName["Light"]
             if (light != null) printInt(light, "Light", "LIGHT_TURN_SIGNAL_LIGHT")
