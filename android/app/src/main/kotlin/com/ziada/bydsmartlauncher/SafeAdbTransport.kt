@@ -12,6 +12,7 @@ import com.bydmate.app.data.autoservice.AdbProtocolClient
  * BYDMate-derived ADB classes are in their own third-party namespace.
  */
 internal class SafeAdbTransport(context: Context) {
+    private val appContext = context.applicationContext
     private val keyStore = AdbKeyStore(context.applicationContext)
     private val preferences = context.applicationContext.getSharedPreferences("range_preferences", Context.MODE_PRIVATE)
     private val consumption = ConsumptionWindow()
@@ -121,6 +122,28 @@ internal class SafeAdbTransport(context: Context) {
             "odometerScaleAssumption" to "0.1_km_per_tick_LEOPARD3_NOT_VERIFIED_SONG",
             "reason" to if (sample.valid) "requires_firmware_validation" else "unsupported_or_incomplete_read",
         )
+    }
+
+    /**
+     * A one-shot read-only shell classpath probe: inspect firmware constants using
+     * this signed APK. No background process, daemon, Binder registration or writes.
+     * Every result is a candidate until independently confirmed on this car.
+     */
+    @Synchronized
+    fun discoverFidCatalog(): Map<String, Any?> {
+        if (state != "connected" || client?.isConnected() != true) {
+            return mapOf("ok" to false, "status" to "adb_not_connected",
+                "firmwareVerified" to false, "vehicleWriteAuthorized" to false)
+        }
+        val command = FidReadOnlyDiscovery.command(appContext.packageCodePath)
+            ?: return mapOf("ok" to false, "status" to "invalid_apk_path",
+                "firmwareVerified" to false, "vehicleWriteAuthorized" to false)
+        return try {
+            FidReadOnlyDiscovery.parse(client?.exec(command)).diagnostics()
+        } catch (_: Exception) {
+            mapOf("ok" to false, "status" to "firmware_probe_failed",
+                "firmwareVerified" to false, "vehicleWriteAuthorized" to false)
+        }
     }
 
     /** A single fixed read-only autoservice probe; returned SOC is UNVERIFIED for Song Plus. */
