@@ -6,6 +6,7 @@ abstract interface class VehicleGateway {
   Future<VehicleSnapshot> getSnapshot();
   Stream<VehicleSnapshot> get snapshots;
   Future<Map<Object?, Object?>> getDiagnostics();
+  Future<Map<Object?, Object?>> exportDiagnostics();
   Future<Map<Object?, Object?>> connectAdb();
   Future<Map<Object?, Object?>> disconnectAdb();
   Future<Map<Object?, Object?>> probeAdb();
@@ -71,6 +72,9 @@ class PlatformVehicleGateway implements VehicleGateway {
       return {'error': 'not_implemented'};
     }
   }
+
+  @override
+  Future<Map<Object?, Object?>> exportDiagnostics() => _adbAction('diagnosticsExport');
 
   Future<Map<Object?, Object?>> _adbAction(String name) async {
     try {
@@ -208,6 +212,10 @@ class DemoVehicleGateway implements VehicleGateway {
   @override
   Future<Map<Object?, Object?>> getDiagnostics() async =>
       {'mode': 'demo', 'carAccess': false};
+
+  @override
+  Future<Map<Object?, Object?>> exportDiagnostics() async =>
+      {'ok': false, 'error': 'demo_only'};
 
   @override
   Future<Map<Object?, Object?>> connectAdb() async => {'error': 'demo_only'};
