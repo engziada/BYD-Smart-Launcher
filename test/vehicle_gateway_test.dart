@@ -91,6 +91,26 @@ void main() {
     expect(params?['chatId'], '123');
   });
 
+  test('dashboard two-FID diagnostic is isolated from energy and demo', () async {
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return <String, Object?>{
+        'ok': true, 'socCandidatePercent': 89.0,
+        'odometerCandidateKm': 42010.6, 'firmwareVerified': false,
+      };
+    });
+    const gateway = PlatformVehicleGateway();
+    final result = await gateway.sampleDashboardCandidates();
+    expect(result['ok'], true);
+    expect(result['firmwareVerified'], false);
+    expect(calls, ['dashboardSample']);
+    const demo = DemoVehicleGateway();
+    expect((await demo.sampleDashboardCandidates())['reason'], 'demo_only');
+    expect(calls, ['dashboardSample']);
+  });
+
   test('explicit telemetry reading uses fixed native method', () async {
     final calls = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
