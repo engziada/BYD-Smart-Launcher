@@ -15,10 +15,14 @@ internal object FidReadOnlyDiscovery {
     private val allowedFields = setOf(
         "BYDAutoConstants.BYDAUTO_DEVICE_STATISTIC",
         "BYDAutoConstants.BYDAUTO_DEVICE_LIGHT",
+        "BYDAutoConstants.BYDAUTO_DEVICE_CHARGING",
         "Statistic.STATISTIC_ELEC_PERCENTAGE",
         "Statistic.STATISTIC_TOTAL_MILEAGE",
         "Statistic.STATISTIC_TOTAL_ELEC_CONSUMPTION",
-        "Light.LIGHT_TURN_SIGNAL_LIGHT"
+        "Light.LIGHT_TURN_SIGNAL_LIGHT",
+        "Charging.CHARGING_GUN_CONNECT_STATE",
+        "Charging.CHARGING_BATTERRY_DEVICE_STATE",
+        "Charging.CHARGING_TYPE"
     )
     private val oneLine = Regex("""^([A-Za-z][A-Za-z0-9_.]*)=(-?[0-9]{1,11})$""")
 
@@ -40,6 +44,11 @@ internal object FidReadOnlyDiscovery {
             catalog.fidOf("Statistic.STATISTIC_ELEC_PERCENTAGE") != null &&
             catalog.fidOf("Statistic.STATISTIC_TOTAL_MILEAGE") != null
 
+        val readyForChargingCandidateProbes: Boolean get() =
+            catalog.deviceOf("CHARGING") != null &&
+            catalog.fidOf("Charging.CHARGING_GUN_CONNECT_STATE") != null &&
+            catalog.fidOf("Charging.CHARGING_BATTERRY_DEVICE_STATE") != null
+
         fun diagnostics(): Map<String, Any?> = mapOf(
             "ok" to readyForCandidateProbes,
             "status" to status,
@@ -51,6 +60,10 @@ internal object FidReadOnlyDiscovery {
             "odometerFidCandidate" to catalog.fidOf("Statistic.STATISTIC_TOTAL_MILEAGE"),
             "energyFidCandidate" to catalog.fidOf("Statistic.STATISTIC_TOTAL_ELEC_CONSUMPTION"),
             "lightDeviceCandidate" to catalog.deviceOf("LIGHT"),
+            "chargingDeviceCandidate" to catalog.deviceOf("CHARGING"),
+            "gunFidCandidate" to catalog.fidOf("Charging.CHARGING_GUN_CONNECT_STATE"),
+            "bmsFidCandidate" to catalog.fidOf("Charging.CHARGING_BATTERRY_DEVICE_STATE"),
+            "chargeTypeFidCandidate" to catalog.fidOf("Charging.CHARGING_TYPE"),
             "turnSignalFidCandidate" to catalog.fidOf("Light.LIGHT_TURN_SIGNAL_LIGHT"),
             "firmwareVerified" to false,
             "helperPersistent" to false,
