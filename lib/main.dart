@@ -80,7 +80,7 @@ class LauncherHome extends StatefulWidget {
   State<LauncherHome> createState() => _LauncherHomeState();
 }
 
-class _LauncherHomeState extends State<LauncherHome> {
+class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver {
   VehicleGateway _gateway = const PlatformVehicleGateway();
   VehicleSnapshot _snapshot = VehicleSnapshot.unavailable();
   StreamSubscription<VehicleSnapshot>? _subscription;
@@ -98,6 +98,12 @@ class _LauncherHomeState extends State<LauncherHome> {
   final _batteryCapacity = TextEditingController();
   bool _rangeBusy = false;
   Map<Object?, Object?> _rangeCandidate = {};
+  Timer? _dashboardTimer;
+  int _dashboardSession = 0;
+  bool _dashboardEnabled = false;
+  bool _dashboardStarting = false;
+  DateTime? _dashboardSampledAt;
+  String _dashboardNotice = 'Tap Start to connect ADB and show read-only candidate values.';
   String _rangeMessage = 'Press Sample while safely parked. These values are UNVERIFIED.';
   bool _rulesBusy = false;
   bool _rulesMasterEnabled = false;
@@ -110,6 +116,7 @@ class _LauncherHomeState extends State<LauncherHome> {
   void initState() {
     super.initState();
     _lightMode.addListener(_refreshThemeColors);
+    WidgetsBinding.instance.addObserver(this);
     _connect();
     _loadTelegramStatus();
     _loadCapacityStatus();
@@ -138,6 +145,7 @@ class _LauncherHomeState extends State<LauncherHome> {
   }
 
   Future<void> _toggleDemo(bool enabled) async {
+    _stopDashboard(reason: 'Dashboard updates stopped on mode change.');
     setState(() {
       _demo = enabled;
       _gateway.dispose();
@@ -146,9 +154,115 @@ class _LauncherHomeState extends State<LauncherHome> {
           : const PlatformVehicleGateway();
       _snapshot = VehicleSnapshot.unavailable();
       _chargingCandidate = {};
+      _rangeCandidate = {};
+      _dashboardSampledAt = null;
     });
     await _connect();
     await _loadAutomationStatus();
+  }
+
+
+  /// Diagnostic-only foreground polling. Read-only autoservice GET calls run
+  /// every 15 seconds after an explicit user action; no app-wide/background
+  /// service, vehicle writes, or verified-telemetry promotion is involved.
+  void _stopDashboard({String reason = 'Updates stopped. Last reading may be stale.'}) {
+    _dashboardSession++;
+    _dashboardTimer?.cancel();
+    _dashboardTimer = null;
+    if (mounted) {
+      setState(() {
+        _dashboardEnabled = false;
+        _dashboardStarting = false;
+        _dashboardNotice = reason;
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed &&
+        (_dashboardEnabled || _dashboardStarting)) {
+      _stopDashboard(reason:
+          'Updates paused when the app left the foreground. Tap Start to resume.');
+    }
+  }
+
+  Future<void> _startDashboard() async {
+    if (_demo || _dashboardEnabled || _dashboardStarting || _adbBusy) return;
+    final session = ++_dashboardSession;
+    setState(() {
+      _dashboardStarting = true;
+      _dashboardNotice = 'Connecting ADB (approve on DiLink if prompted)…';
+      _rangeCandidate = {};
+      _dashboardSampledAt = null;
+    });
+    try {
+      final connection = await _gateway.connectAdb();
+      if (!mounted || session != _dashboardSession || _demo) return;
+      if (connection['adb'] != 'connected') {
+        setState(() => _dashboardNotice =
+            'ADB unavailable: ${connection['adbFailure'] ?? connection['error'] ?? connection['adb'] ?? 'unknown'}.');
+        return;
+      }
+      final snap = await _gateway.getSnapshot();
+      if (!mounted || session != _dashboardSession || _demo) return;
+      setState(() {
+        _snapshot = snap;
+        _dashboardEnabled = true;
+        _dashboardNotice = 'Reading diagnostics…';
+      });
+      await _pollDashboard(session);
+      if (!mounted || session != _dashboardSession || !_dashboardEnabled) return;
+      _dashboardTimer = Timer.periodic(
+        const Duration(seconds: 15), (_) => _pollDashboard(session));
+    } catch (_) {
+      if (mounted && session == _dashboardSession) {
+        _stopDashboard(reason: 'Unable to connect the diagnostic dashboard.');
+      }
+    } finally {
+      if (mounted && session == _dashboardSession) {
+        setState(() => _dashboardStarting = false);
+      }
+    }
+  }
+
+  Future<void> _pollDashboard(int session) async {
+    if (!mounted || !_dashboardEnabled || _demo ||
+        session != _dashboardSession || _rangeBusy || _adbBusy) return;
+    setState(() => _rangeBusy = true);
+    try {
+      final result = await _gateway.sampleTelemetry();
+      if (!mounted || session != _dashboardSession || !_dashboardEnabled) return;
+      final soc = result['socCandidatePercent'];
+      final odo = result['odometerCandidateKm'];
+      if (result['ok'] != true ||
+          soc is! num || odo is! num || !soc.toDouble().isFinite ||
+          !odo.toDouble().isFinite || soc < 0 || soc > 100 || odo < 0) {
+        _stopDashboard(reason: 'Invalid/missing diagnostic values. '
+            'Polling stopped; reconnect when parked.');
+        setState(() {
+          _rangeCandidate = {};
+          _dashboardSampledAt = null;
+        });
+        return;
+      }
+      setState(() {
+        _rangeCandidate = result;
+        _dashboardSampledAt = DateTime.now();
+        _dashboardNotice = 'Read-only samples update every 15 seconds. '
+            'Values are candidates, not approved for car controls.';
+      });
+    } catch (_) {
+      if (mounted && session == _dashboardSession) {
+        _stopDashboard(reason: 'Read failed. Polling stopped safely.');
+        setState(() {
+          _rangeCandidate = {};
+          _dashboardSampledAt = null;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _rangeBusy = false);
+    }
   }
 
   Future<void> _readDiagnostics() async {
@@ -182,6 +296,7 @@ class _LauncherHomeState extends State<LauncherHome> {
 
   Future<void> _adbAction(String action) async {
     if (_adbBusy || _demo) return;
+    if (action == 'disconnect') _stopDashboard(reason: 'ADB disconnected; dashboard stopped.');
     setState(() {
       _adbBusy = true;
       _diagnostics = action == 'connect'
@@ -317,6 +432,10 @@ class _LauncherHomeState extends State<LauncherHome> {
   }
 
   Future<void> _sampleTelemetry() async {
+    if (_dashboardEnabled) {
+      await _pollDashboard(_dashboardSession);
+      return;
+    }
     if (_rangeBusy || _demo) return;
     setState(() {
       _rangeBusy = true;
@@ -326,7 +445,8 @@ class _LauncherHomeState extends State<LauncherHome> {
       final values = await _gateway.sampleTelemetry();
       if (mounted) {
         setState(() {
-          _rangeCandidate = values;
+          _rangeCandidate = values['ok'] == true ? values : {};
+          _dashboardSampledAt = values['ok'] == true ? DateTime.now() : null;
           _rangeMessage = values['ok'] == true
               ? 'Candidate values received; NOT verified on Song Plus.'
               : 'Unable to read complete telemetry: ${values['reason'] ?? 'unknown'}';
@@ -404,6 +524,9 @@ class _LauncherHomeState extends State<LauncherHome> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _dashboardSession++;
+    _dashboardTimer?.cancel();
     _lightMode.removeListener(_refreshThemeColors);
     _tgToken.dispose();
     _tgChat.dispose();
@@ -480,35 +603,80 @@ class _LauncherHomeState extends State<LauncherHome> {
   Widget _content() {
     switch (_page) {
       case LauncherPage.status:
-        return _section('Vehicle status',
-            'Live data is unavailable until the native transport is validated', [
-          if (!_snapshot.hasLiveVehicleData)
-            _info(_demo ? 'DEMO VALUES' : 'Vehicle telemetry unverified',
-                _demo
-                    ? 'Synthetic readings only; no commands sent to the car'
-                    : 'No vehicle values are guessed or fabricated',
-                Icons.info_outline),
-          if (!_demo && _rangeCandidate['socCandidatePercent'] is num)
-            _info('ADB diagnostic candidate — not live telemetry',
-                'SOC: ${_candidateValue('socCandidatePercent', '%')}  •  Odometer: ${_candidateValue('odometerCandidateKm', 'km')}  •  Energy counter: ${_candidateValue('energyCandidateKwh', 'kWh')}. Verify against OEM display; values are not safety-authorized.',
-                Icons.fact_check_outlined),
-          if (!_demo)
-            OutlinedButton.icon(
-              onPressed: _rangeBusy ? null : _sampleTelemetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Read diagnostic candidates (parked only)'),
-            ),
+        final socCandidate = _rangeCandidate['socCandidatePercent'];
+        final socValue = socCandidate is num &&
+                socCandidate.toDouble().isFinite &&
+                socCandidate >= 0 && socCandidate <= 100
+            ? socCandidate.toDouble() / 100.0
+            : null;
+        return _section('Vehicle dashboard — MVP preview',
+            'Operator-enabled read-only ADB diagnostics, not OEM-certified live telemetry', [
+          _info(_demo ? 'DEMO — synthetic readings' : 'Read-only vehicle dashboard',
+              _demo
+                  ? 'No car connection, updates, or commands in demo mode.'
+                  : 'Your Song Plus SOC and odometer are shown as candidates. '
+                    'No vehicle writes, camera access, or automatic Telegram dispatch.',
+              Icons.dashboard_outlined),
           Row(children: [
-            _metric('Battery', _value(_snapshot.socPercent, '%'),
-                Icons.battery_charging_full),
-            _metric('Speed', _value(_snapshot.speedKmh, ' km/h'),
-                Icons.speed),
-            _metric('Real range',
-                _value(_snapshot.rangeEstimateKm, ' km'), Icons.route),
+            _metric(_demo ? 'Battery • DEMO' : 'Battery • candidate',
+                _demo
+                    ? _value(_snapshot.socPercent, '%')
+                    : _candidateValue('socCandidatePercent', '%', precision: 0),
+                Icons.battery_full_outlined),
+            _metric(_demo ? 'Speed • DEMO' : 'Odometer • candidate',
+                _demo
+                    ? _value(_snapshot.speedKmh, ' km/h')
+                    : _candidateValue('odometerCandidateKm', 'km'),
+                Icons.speed_outlined),
+            _metric('Real range', _demo
+                ? _value(_snapshot.rangeEstimateKm, ' km')
+                : '—', Icons.route_outlined),
           ]),
-          _info('Camera status: inactive',
-              'Factory reverse and 360 cameras retain precedence',
-              Icons.directions_car_outlined),
+          if (!_demo && socValue != null)
+            LinearProgressIndicator(value: socValue),
+          if (!_demo)
+            Text(_dashboardNotice),
+          if (!_demo && _dashboardSampledAt != null)
+            Text('Last diagnostic sample: '
+                 '${TimeOfDay.fromDateTime(_dashboardSampledAt!).format(context)} '
+                 '• ${_dashboardEnabled ? 'foreground refresh ON' : 'updates STOPPED'}'),
+          if (!_demo)
+            Wrap(spacing: 12, runSpacing: 8, children: [
+              FilledButton.icon(
+                onPressed: _dashboardStarting || _adbBusy
+                    ? null : _dashboardEnabled
+                        ? () => _stopDashboard()
+                        : _startDashboard,
+                icon: Icon(_dashboardEnabled ? Icons.stop_circle_outlined
+                    : Icons.play_circle_outline),
+                label: Text(_dashboardStarting ? 'Connecting…'
+                    : _dashboardEnabled ? 'Stop updates'
+                    : 'Start read-only dashboard'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _rangeBusy || _dashboardStarting
+                    ? null : _sampleTelemetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Read once'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _dashboardStarting)
+                    ? null : () => _adbAction('charging'),
+                icon: const Icon(Icons.ev_station_outlined),
+                label: const Text('Charging diagnostic once'),
+              ),
+            ]),
+          if (_rangeBusy || _dashboardStarting)
+            const LinearProgressIndicator(),
+          if (!_demo && _chargingCandidate.isNotEmpty)
+            _info('Charging state — hypothesis',
+                'Connector ${_chargingCandidate['gunKindCandidate'] ?? 'unknown'} • '
+                'BMS ${_chargingCandidate['bmsPhaseCandidate'] ?? 'unknown'} • '
+                'No charge-complete alerts',
+                Icons.ev_station_outlined),
+          _info('Blind-spot camera: not yet integrated',
+              'OEM reverse/360 camera remains in control; no overlay activated',
+              Icons.videocam_off_outlined),
         ]);
       case LauncherPage.blindSpot:
         return _section('Blind spot',
