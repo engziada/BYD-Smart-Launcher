@@ -6,11 +6,14 @@ import 'package:flutter/services.dart';
 import 'core/vehicle_gateway.dart';
 import 'core/vehicle_snapshot.dart';
 
-const Color _background = Color(0xFF151C24);
-const Color _surface = Color(0xFF1C2530);
-const Color _tile = Color(0xFF26313F);
-const Color _secondary = Color(0xFF9DA9B9);
-const Color _accent = Color(0xFF8FC1FF);
+final ValueNotifier<bool> _lightMode = ValueNotifier<bool>(false);
+
+Color get _background => _lightMode.value ? const Color(0xFFF4F7FA) : const Color(0xFF151C24);
+Color get _surface => _lightMode.value ? Colors.white : const Color(0xFF1C2530);
+Color get _tile => _lightMode.value ? const Color(0xFFE5EDF5) : const Color(0xFF26313F);
+Color get _secondary => _lightMode.value ? const Color(0xFF526173) : const Color(0xFF9DA9B9);
+Color get _accent => _lightMode.value ? const Color(0xFF175CA8) : const Color(0xFF8FC1FF);
+Color get _navigationActive => _lightMode.value ? const Color(0xFF143D68) : Colors.white;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,16 +29,22 @@ class LauncherApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'BYD Smart Launcher',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: _background,
-        colorScheme: const ColorScheme.dark(primary: _accent),
+    return ValueListenableBuilder<bool>(
+      valueListenable: _lightMode,
+      builder: (context, light, _) => MaterialApp(
+        title: 'BYD Smart Launcher',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          brightness: light ? Brightness.light : Brightness.dark,
+          scaffoldBackgroundColor: _background,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: _accent,
+            brightness: light ? Brightness.light : Brightness.dark,
+          ),
+        ),
+        home: const LauncherHome(),
       ),
-      home: const LauncherHome(),
     );
   }
 }
@@ -380,10 +389,10 @@ class _LauncherHomeState extends State<LauncherHome> {
               Icon(icon, color: _accent),
               const SizedBox(height: 8),
               Text(reading,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 22)),
               const SizedBox(height: 3),
-              Text(name, style: const TextStyle(color: _secondary)),
+              Text(name, style: TextStyle(color: _secondary)),
             ],
           ),
         ),
@@ -394,11 +403,11 @@ class _LauncherHomeState extends State<LauncherHome> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(heading,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 25, fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
         Text(description,
-            style: const TextStyle(color: _secondary, fontSize: 12)),
+            style: TextStyle(color: _secondary, fontSize: 12)),
         const SizedBox(height: 15),
         Expanded(
           child: ListView(
@@ -444,7 +453,7 @@ class _LauncherHomeState extends State<LauncherHome> {
           if (!_demo)
             OutlinedButton.icon(
               onPressed: _rangeBusy ? null : _sampleTelemetry,
-              icon: const Icon(Icons.refresh),
+              icon: Icon(Icons.refresh),
               label: const Text('Read diagnostic candidates (parked only)'),
             ),
           Row(children: [
@@ -495,12 +504,12 @@ class _LauncherHomeState extends State<LauncherHome> {
           Wrap(spacing: 12, runSpacing: 10, children: [
             FilledButton.icon(
               onPressed: (_rangeBusy || _demo) ? null : _sampleTelemetry,
-              icon: const Icon(Icons.sensors_outlined),
+              icon: Icon(Icons.sensors_outlined),
               label: const Text('Sample vehicle counters'),
             ),
             OutlinedButton.icon(
               onPressed: (_rangeBusy || _demo) ? null : _saveCapacity,
-              icon: const Icon(Icons.save_outlined),
+              icon: Icon(Icons.save_outlined),
               label: const Text('Save capacity'),
             ),
           ]),
@@ -544,7 +553,7 @@ class _LauncherHomeState extends State<LauncherHome> {
             ),
           FilledButton.icon(
             onPressed: _rulesBusy || _demo ? null : () => _automationAction('add'),
-            icon: const Icon(Icons.add),
+            icon: Icon(Icons.add),
             label: const Text('Add notification rule (initially OFF)'),
           ),
           if (_rulesBusy) const LinearProgressIndicator(),
@@ -557,7 +566,7 @@ class _LauncherHomeState extends State<LauncherHome> {
             return ListTile(
               title: Text(_ruleLabel(rule)),
               subtitle: const Text('THEN: notification-only intent · NOT dispatched'),
-              leading: const Icon(Icons.notifications_none_outlined),
+              leading: Icon(Icons.notifications_none_outlined),
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 Switch(
                   value: enabled,
@@ -567,7 +576,7 @@ class _LauncherHomeState extends State<LauncherHome> {
                 IconButton(
                   onPressed: _rulesBusy || _demo
                       ? null : () => _automationAction('remove', id: id),
-                  icon: const Icon(Icons.delete_outline),
+                  icon: Icon(Icons.delete_outline),
                   tooltip: 'Remove saved rule',
                 ),
               ]),
@@ -607,19 +616,19 @@ class _LauncherHomeState extends State<LauncherHome> {
             children: [
               FilledButton.icon(
                 onPressed: _tgBusy || _demo ? null : () => _telegramAction('save'),
-                icon: const Icon(Icons.save_outlined),
+                icon: Icon(Icons.save_outlined),
                 label: const Text('Save bot settings'),
               ),
               OutlinedButton.icon(
                 onPressed: _tgBusy || _demo || !_tgConfigured
                     ? null : () => _telegramAction('test'),
-                icon: const Icon(Icons.send_outlined),
+                icon: Icon(Icons.send_outlined),
                 label: const Text('Send test message'),
               ),
               OutlinedButton.icon(
                 onPressed: _tgBusy || _demo || !_tgConfigured
                     ? null : () => _telegramAction('clear'),
-                icon: const Icon(Icons.delete_outline),
+                icon: Icon(Icons.delete_outline),
                 label: const Text('Clear credentials'),
               ),
             ],
@@ -629,13 +638,13 @@ class _LauncherHomeState extends State<LauncherHome> {
             OutlinedButton.icon(
               onPressed: _tgBusy || _demo || !_tgConfigured || _tgPending == 0
                   ? null : () => _telegramAction('retry'),
-              icon: const Icon(Icons.refresh_outlined),
+              icon: Icon(Icons.refresh_outlined),
               label: const Text('Retry pending test'),
             ),
             OutlinedButton.icon(
               onPressed: _tgBusy || _demo || _tgPending == 0
                   ? null : () => _telegramAction('dropQueue'),
-              icon: const Icon(Icons.delete_sweep_outlined),
+              icon: Icon(Icons.delete_sweep_outlined),
               label: const Text('Clear pending tests'),
             ),
           ]),
@@ -658,6 +667,13 @@ class _LauncherHomeState extends State<LauncherHome> {
         return _section('Settings & diagnostics',
             'ADB handshake only; helper and vehicle telemetry are not yet installed', [
           SwitchListTile(
+            value: _lightMode.value,
+            onChanged: (enabled) => _lightMode.value = enabled,
+            title: const Text('Light scene mode'),
+            subtitle: const Text('Switch between light and dark appearance'),
+            secondary: Icon(_lightMode.value ? Icons.light_mode : Icons.dark_mode),
+          ),
+          SwitchListTile(
             value: _demo,
             onChanged: _toggleDemo,
             title: const Text('Explicit demo mode'),
@@ -679,32 +695,32 @@ class _LauncherHomeState extends State<LauncherHome> {
             children: [
               FilledButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('connect'),
-                icon: const Icon(Icons.usb),
+                icon: Icon(Icons.usb),
                 label: const Text('Connect ADB'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('probe'),
-                icon: const Icon(Icons.info_outline),
+                icon: Icon(Icons.info_outline),
                 label: const Text('Probe Android version'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('soc'),
-                icon: const Icon(Icons.battery_full),
+                icon: Icon(Icons.battery_full),
                 label: const Text('Probe SOC (unverified)'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('firmware'),
-                icon: const Icon(Icons.developer_board_outlined),
+                icon: Icon(Icons.developer_board_outlined),
                 label: const Text('Probe firmware identity (read-only)'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),
-                icon: const Icon(Icons.link_off),
+                icon: Icon(Icons.link_off),
                 label: const Text('Disconnect ADB'),
               ),
               OutlinedButton.icon(
                 onPressed: _adbBusy ? null : _readDiagnostics,
-                icon: const Icon(Icons.refresh),
+                icon: Icon(Icons.refresh),
                 label: const Text('Refresh diagnostics'),
               ),
             ],
@@ -736,12 +752,12 @@ class _LauncherHomeState extends State<LauncherHome> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(page.icon, color: active ? Colors.white : _secondary),
+                        Icon(page.icon, color: active ? _navigationActive : _secondary),
                         const SizedBox(height: 4),
                         Text(page.label,
                             style: TextStyle(
                               fontSize: 10,
-                              color: active ? Colors.white : _secondary,
+                              color: active ? _navigationActive : _secondary,
                             )),
                       ],
                     ),
@@ -796,7 +812,7 @@ class _LauncherHomeState extends State<LauncherHome> {
           child: Column(
             children: [
               Row(children: [
-                const Icon(Icons.auto_awesome, color: _accent),
+                Icon(Icons.auto_awesome, color: _accent),
                 const SizedBox(width: 12),
                 const Text('BYD Smart Launcher',
                     style:
@@ -810,10 +826,10 @@ class _LauncherHomeState extends State<LauncherHome> {
                           : _snapshot.adbState.toLowerCase().contains('connected') && !_snapshot.adbState.toLowerCase().contains('disconnected')
                               ? 'ADB connected • vehicle unverified'
                               : 'Vehicle disconnected',
-                  style: const TextStyle(color: _secondary),
+                  style: TextStyle(color: _secondary),
                 ),
                 const SizedBox(width: 20),
-                const Icon(Icons.settings_input_antenna,
+                Icon(Icons.settings_input_antenna,
                     color: _secondary),
               ]),
               const SizedBox(height: 18),
