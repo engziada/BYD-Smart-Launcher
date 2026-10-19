@@ -156,6 +156,27 @@ class _LauncherHomeState extends State<LauncherHome> {
     }
   }
 
+  Future<void> _exportDiagnostics() async {
+    if (_adbBusy || _demo) return;
+    setState(() => _adbBusy = true);
+    try {
+      final response = await _gateway.exportDiagnostics();
+      if (!mounted) return;
+      setState(() {
+        _diagnostics = response['ok'] == true
+            ? 'Sanitized JSON saved in Downloads/BYD-Smart-Launcher. '
+              'Review its contents before sharing.'
+            : 'Diagnostics export failed: ${response['error'] ?? 'unknown'}';
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _diagnostics = 'Diagnostics export unavailable.');
+      }
+    } finally {
+      if (mounted) setState(() => _adbBusy = false);
+    }
+  }
+
   Future<void> _adbAction(String action) async {
     if (_adbBusy || _demo) return;
     setState(() {
@@ -722,6 +743,11 @@ class _LauncherHomeState extends State<LauncherHome> {
                 onPressed: _adbBusy ? null : _readDiagnostics,
                 icon: Icon(Icons.refresh),
                 label: const Text('Refresh diagnostics'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _demo) ? null : _exportDiagnostics,
+                icon: Icon(Icons.file_download_outlined),
+                label: const Text('Export sanitized diagnostics JSON'),
               ),
             ],
           ),
