@@ -112,8 +112,14 @@ class MainActivity : FlutterActivity() {
                     "chargingSample" -> {
                         worker.execute {
                             val response = when (call.method) {
-                                "adbConnect" -> adb.connect()
-                                "adbDisconnect" -> adb.disconnect()
+                                "adbConnect" -> {
+                                    lastChargingSample = emptyMap()
+                                    adb.connect()
+                                }
+                                "adbDisconnect" -> {
+                                    lastChargingSample = emptyMap()
+                                    adb.disconnect()
+                                }
                                 "adbProbeSoc" -> adb.probeSoc()
                                 "adbProbeFirmware" -> adb.probeFirmware().also { lastFirmwareProbe = it }
                                 "adbProbeFids" -> adb.discoverFidCatalog().also { lastFidDiscovery = it }
