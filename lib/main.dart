@@ -231,7 +231,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         session != _dashboardSession || _rangeBusy || _adbBusy) return;
     setState(() => _rangeBusy = true);
     try {
-      final result = await _gateway.sampleTelemetry();
+      final result = await _gateway.sampleDashboardCandidates();
       if (!mounted || session != _dashboardSession || !_dashboardEnabled) return;
       final soc = result['socCandidatePercent'];
       final odo = result['odometerCandidateKm'];
@@ -426,6 +426,37 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ? 'Capacity saved as operator-provided (not vehicle-verified).'
           : 'Capacity could not be saved: ${res['error'] ?? 'unknown'}');
       }
+    } finally {
+      if (mounted) setState(() => _rangeBusy = false);
+    }
+  }
+
+
+  /// Explicit one-shot dashboard read without an energy-counter dependency.
+  Future<void> _sampleDashboardOnce() async {
+    if (_dashboardEnabled) {
+      await _pollDashboard(_dashboardSession);
+      return;
+    }
+    if (_rangeBusy || _demo || _dashboardStarting) return;
+    setState(() => _rangeBusy = true);
+    try {
+      final result = await _gateway.sampleDashboardCandidates();
+      if (!mounted || _demo) return;
+      setState(() {
+        _rangeCandidate = result['ok'] == true ? result : {};
+        _dashboardSampledAt = result['ok'] == true ? DateTime.now() : null;
+        _dashboardNotice = result['ok'] == true
+            ? 'Manual read-only candidates captured. Updates are OFF.'
+            : 'Could not read dashboard candidates: '
+              '${result['reason'] ?? result['error'] ?? 'unknown'}.';
+      });
+    } catch (_) {
+      if (mounted) setState(() {
+        _rangeCandidate = {};
+        _dashboardSampledAt = null;
+        _dashboardNotice = 'Read-only sample unavailable.';
+      });
     } finally {
       if (mounted) setState(() => _rangeBusy = false);
     }
@@ -655,7 +686,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               ),
               OutlinedButton.icon(
                 onPressed: _rangeBusy || _dashboardStarting
-                    ? null : _sampleTelemetry,
+                    ? null : _sampleDashboardOnce,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Read once'),
               ),
