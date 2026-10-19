@@ -23,7 +23,7 @@ void main() {
     expect(find.text('Export sanitized diagnostics JSON'), findsOneWidget);
 
     await tester.tap(lightSwitch);
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(tester.widget<SwitchListTile>(lightSwitch).value, isTrue);
     expect(Theme.of(tester.element(lightSwitch)).brightness, Brightness.light);
 
