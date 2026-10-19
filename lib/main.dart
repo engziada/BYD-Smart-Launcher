@@ -432,11 +432,21 @@ class _LauncherHomeState extends State<LauncherHome> {
         return _section('Vehicle status',
             'Live data is unavailable until the native transport is validated', [
           if (!_snapshot.hasLiveVehicleData)
-            _info(_demo ? 'DEMO VALUES' : 'Vehicle not connected',
+            _info(_demo ? 'DEMO VALUES' : 'Vehicle telemetry unverified',
                 _demo
                     ? 'Synthetic readings only; no commands sent to the car'
                     : 'No vehicle values are guessed or fabricated',
                 Icons.info_outline),
+          if (!_demo && _rangeCandidate['socCandidatePercent'] is num)
+            _info('ADB diagnostic candidate — not live telemetry',
+                'SOC: ${_candidateValue('socCandidatePercent', '%')}  •  Odometer: ${_candidateValue('odometerCandidateKm', 'km')}  •  Energy counter: ${_candidateValue('energyCandidateKwh', 'kWh')}. Verify against OEM display; values are not safety-authorized.',
+                Icons.fact_check_outlined),
+          if (!_demo)
+            OutlinedButton.icon(
+              onPressed: _rangeBusy ? null : _sampleTelemetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Read diagnostic candidates (parked only)'),
+            ),
           Row(children: [
             _metric('Battery', _value(_snapshot.socPercent, '%'),
                 Icons.battery_charging_full),
@@ -797,7 +807,9 @@ class _LauncherHomeState extends State<LauncherHome> {
                       ? 'DEMO — no car access'
                       : _snapshot.hasLiveVehicleData
                           ? 'Live vehicle connected'
-                          : 'Vehicle disconnected',
+                          : _snapshot.adbState.toLowerCase().contains('connected') && !_snapshot.adbState.toLowerCase().contains('disconnected')
+                              ? 'ADB connected • vehicle unverified'
+                              : 'Vehicle disconnected',
                   style: const TextStyle(color: _secondary),
                 ),
                 const SizedBox(width: 20),
