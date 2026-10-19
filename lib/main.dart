@@ -295,7 +295,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   }
 
   Future<void> _adbAction(String action) async {
-    if (_adbBusy || _demo) return;
+    if (_adbBusy || _demo || _dashboardStarting) return;
     if (action == 'disconnect') _stopDashboard(reason: 'ADB disconnected; dashboard stopped.');
     setState(() {
       _adbBusy = true;
@@ -321,6 +321,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             _chargingCandidate = response;
           } else if (action == 'disconnect' || action == 'connect') {
             _chargingCandidate = {};
+            _rangeCandidate = {};
+            _dashboardSampledAt = null;
           }
           _diagnostics = action == 'charging'
               ? response['ok'] == true
