@@ -39,6 +39,7 @@ internal class DiagnosticReportWriter(private val context: Context) {
         )
         private val TELEMETRY_KEYS = setOf(
             "ok", "socCandidatePercent", "energyCandidateKwh", "odometerCandidateKm",
+            "capturedAtEpochMs", "vehicleWriteAuthorized",
             "sampleCount", "windowDistanceKm", "firmwareVerified",
             "odometerScaleAssumption", "source", "reason"
         )

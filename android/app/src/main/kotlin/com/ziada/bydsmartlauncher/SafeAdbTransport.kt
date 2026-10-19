@@ -89,6 +89,40 @@ internal class SafeAdbTransport(context: Context) {
     }
 
     /**
+     * Foreground MVP dashboard sample: only the two previously OEM-matched
+     * read-only FIDs (SOC and odometer). Intentionally independent of the
+     * unresolved cumulative energy counter, trip window, and charging state.
+     * Never marks a candidate as verified telemetry.
+     */
+    @Synchronized
+    fun sampleDashboardCandidates(): Map<String, Any?> {
+        if (state != "connected" || client?.isConnected() != true) {
+            return mapOf(
+                "ok" to false, "reason" to "adb_not_connected",
+                "firmwareVerified" to false, "vehicleWriteAuthorized" to false
+            )
+        }
+        val active = client ?: return mapOf(
+            "ok" to false, "reason" to "adb_not_connected",
+            "firmwareVerified" to false, "vehicleWriteAuthorized" to false
+        )
+        val soc = CandidateTelemetry.soc(active.exec(CandidateTelemetry.SOC))
+        val odometer = CandidateTelemetry.odometerKm(active.exec(CandidateTelemetry.ODOMETER))
+        return mapOf(
+            "ok" to (soc != null && odometer != null),
+            "socCandidatePercent" to soc,
+            "odometerCandidateKm" to odometer,
+            "capturedAtEpochMs" to System.currentTimeMillis(),
+            "source" to "read_only_oem_matched_candidate_fids",
+            "firmwareVerified" to false,
+            "vehicleWriteAuthorized" to false,
+            "reason" to if (soc != null && odometer != null) {
+                "requires_continuous_device_validation"
+            } else "missing_or_invalid_candidate"
+        )
+    }
+
+    /**
      * A user-invoked, finite read-only diagnostic batch. Fallback addresses are NOT validated
      * for this vehicle. No vehicle snapshot is promoted to "live" based on these readings.
      */
