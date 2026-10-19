@@ -23,3 +23,10 @@
 - SOC probe uses BYDMate's Leopard 3 *fallback* address and is marked UNVERIFIED for Song Plus OS 2602 until device-catalog validation.
 - A prior Android CI build on `7ce2850` failed during BouncyCastle duplicate META-INF packaging; new exclusion config applied.
 - No production APK or on-car acceptance completed. No keys/tokens/vehicle ID uploaded.
+
+## 2026-10-19 on-car diagnostic feedback and UI patch
+- User reported ADB connected after permission; Android 12 / SDK 32, BYD Auto, autoservice present; firmware compatible/verified remains false and helper not installed.
+- User compared SOC candidate (46%) and odometer candidate with OEM display; both matched in that sample. Cumulative energy candidate read 7126.2 kWh; meaning, unit and FID still require verification.
+- Status was empty and top bar displayed Vehicle disconnected despite ADB connectivity. UI now distinguishes ADB transport from unverified vehicle telemetry and exposes parked-only explicit candidate sampling in Status. This does NOT enable verified live snapshots.
+- Light theme, helper installation, blind-spot camera, rule dispatch, automatic Telegram events and controls remain pending.
+- On-device re-test and Flutter analyze/test/build are pending; no APK acceptance claimed.
