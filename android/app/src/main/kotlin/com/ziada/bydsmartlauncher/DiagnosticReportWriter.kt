@@ -32,7 +32,7 @@ internal class DiagnosticReportWriter(private val context: Context) {
             "catalogReadsOk", "odometerCatalogScaleVerified"
         )
         private val CHARGING_KEYS = setOf(
-            "ok", "status", "catalogResolved", "gunStateRaw", "gunKindCandidate",
+            "ok", "status", "capturedAtEpochMs", "catalogResolved", "gunStateRaw", "gunKindCandidate",
             "bmsStateRaw", "bmsPhaseCandidate", "chargingTypeRaw",
             "chargeStateCandidate", "source", "firmwareVerified",
             "completionConfirmed", "automaticEventEligible", "vehicleWriteAuthorized"
