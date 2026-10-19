@@ -108,6 +108,7 @@ class _LauncherHomeState extends State<LauncherHome> {
   @override
   void initState() {
     super.initState();
+    _lightMode.addListener(_refreshThemeColors);
     _connect();
     _loadTelegramStatus();
     _loadCapacityStatus();
@@ -382,8 +383,13 @@ class _LauncherHomeState extends State<LauncherHome> {
     }
   }
 
+  void _refreshThemeColors() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _lightMode.removeListener(_refreshThemeColors);
     _tgToken.dispose();
     _tgChat.dispose();
     _batteryCapacity.dispose();
