@@ -76,7 +76,7 @@ internal object FidReadOnlyDiscovery {
             val match = oneLine.matchEntire(line) ?: return Result("probe_output_invalid")
             val key = match.groupValues[1]
             if (key !in allowedFields || !seen.add(key) ||
-                match.groupValues[2].toLongOrNull()?.let { it in Int.MIN_VALUE..Int.MAX_VALUE } != true) {
+                match.groupValues[2].toLongOrNull()?.let { it >= Int.MIN_VALUE.toLong() && it <= Int.MAX_VALUE.toLong() } != true) {
                 return Result("probe_output_invalid")
             }
         }
