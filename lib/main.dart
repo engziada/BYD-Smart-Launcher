@@ -410,7 +410,7 @@ class _LauncherHomeState extends State<LauncherHome> {
               Icon(icon, color: _accent),
               const SizedBox(height: 8),
               Text(reading,
-                  style: TextStyle(
+                  style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 22)),
               const SizedBox(height: 3),
               Text(name, style: TextStyle(color: _secondary)),
@@ -620,7 +620,7 @@ class _LauncherHomeState extends State<LauncherHome> {
             decoration: const InputDecoration(
               labelText: 'Telegram Bot Token',
               hintText: 'Token from BotFather (saved encrypted on this device)',
-              prefixIcon: const Icon(Icons.vpn_key_outlined),
+              prefixIcon: Icon(Icons.vpn_key_outlined),
             ),
           ),
           TextField(
@@ -628,7 +628,7 @@ class _LauncherHomeState extends State<LauncherHome> {
             decoration: const InputDecoration(
               labelText: 'Telegram Chat ID',
               hintText: 'Private user / group chat ID',
-              prefixIcon: const Icon(Icons.chat_bubble_outline),
+              prefixIcon: Icon(Icons.chat_bubble_outline),
             ),
           ),
           Wrap(
@@ -803,28 +803,28 @@ class _LauncherHomeState extends State<LauncherHome> {
         ),
         child: Column(
           children: [
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              const Icon(Icons.play_circle_outline),
+            const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(Icons.play_circle_outline),
               SizedBox(width: 10),
               Text('Now playing',
-                  style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w500)),
+                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w500)),
             ]),
             Expanded(
                 child: Center(
                     child: Icon(Icons.music_note_outlined,
                         size: 90, color: _secondary))),
-            Text('No media session',
-                style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
-            SizedBox(height: 10),
+            const Text('No media session',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 10),
             Text('Media player integration is planned',
                 style: TextStyle(color: _secondary, fontSize: 11)),
-            SizedBox(height: 25),
+            const SizedBox(height: 25),
             Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
               Icon(Icons.skip_previous_outlined, color: _secondary),
               Icon(Icons.play_arrow_outlined, color: _secondary),
               Icon(Icons.skip_next_outlined, color: _secondary),
             ]),
-            SizedBox(height: 32),
+            const SizedBox(height: 32),
           ],
         ),
       );
