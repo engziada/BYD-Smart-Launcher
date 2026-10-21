@@ -49,6 +49,10 @@ The original APK **binary AndroidManifest.xml element and attribute data** was d
 
 The launcher now supports a **manual one-shot GET-only raw speed/gear probe** from `Speed.SPEED_AUTO_SPEED` (transaction 7 float) and `Gearbox.GEARBOX_AUTO_MODE_TYPE` (transaction 5 int) with dynamic firmware-derived FIDs. It requires the exact observed DiLink owner identity + existing SOC/odometer FID gate and expected device groups SPEED 1013 / GEARBOX 1011. **No unit conversion or enum labels are asserted**; speed and gear are not promoted to live vehicle state or P3 stationary/write approval. See [motion-fid-acceptance.md](motion-fid-acceptance.md). This feature is **in source, awaiting CI and owner-car evidence**.
 
+## BYDMate native helper source trust audit
+
+[Review of BYDMate helper source and Binder trust boundaries](bydmate-helper-ipc-audit.md) confirms that the parent uses **shell UID**, a caller-UID gate and Binder interface check, spawn-token authentication before reading an exported Binder, version negotiation, and an exclusive single-owner lock. These are properties of **BYDMate's own implementation**, not of our APK and not authority to contact its exported receiver. The full on-car helper bootstrap and permission review remains open. P3 comfort control writes remain unimplemented.
+
 ## ADB commands, privilege and vehicle-control boundary
 
 | Category | Exact permitted structure / upstream reference | Integration decision |
