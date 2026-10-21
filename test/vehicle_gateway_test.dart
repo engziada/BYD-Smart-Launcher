@@ -48,6 +48,33 @@ void main() {
     expect(calls, ['adbProbeFids']);
   });
 
+  test('manual motion probe is a single GET-only native call; demo isolated',
+      () async {
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return <String, Object?>{
+        'ok': true, 'speedRawFloatCandidate': 0.0,
+        'gearRawIntCandidate': 1, 'speedUnitsVerified': false,
+        'gearEnumVerified': false, 'stationaryStateVerified': false,
+        'vehicleWriteAuthorized': false,
+      };
+    });
+
+    const gateway = PlatformVehicleGateway();
+    final result = await gateway.probeMotionCandidates();
+    expect(result['ok'], true);
+    expect(result['gearRawIntCandidate'], 1);
+    expect(result['stationaryStateVerified'], false);
+    expect(result['vehicleWriteAuthorized'], false);
+    expect(calls, ['motionProbe']);
+
+    const demo = DemoVehicleGateway();
+    expect((await demo.probeMotionCandidates())['status'], 'demo_only');
+    expect(calls, ['motionProbe']);
+  });
+
   test('charging diagnostic is an explicit read-only call; demo never probes car', () async {
     final calls = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

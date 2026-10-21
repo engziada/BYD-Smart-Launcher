@@ -31,6 +31,7 @@ class MainActivity : FlutterActivity() {
     @Volatile private var lastTelemetrySample: Map<String, Any?> = emptyMap()
     @Volatile private var lastFidDiscovery: Map<String, Any?> = emptyMap()
     @Volatile private var lastChargingSample: Map<String, Any?> = emptyMap()
+    @Volatile private var lastMotionSample: Map<String, Any?> = emptyMap()
 
     private fun snapshot(): Map<String, Any?> = mapOf(
         "connected" to false, // ADB != verified live BYD car telemetry
@@ -65,7 +66,7 @@ class MainActivity : FlutterActivity() {
                                 DiagnosticReportWriter(applicationContext).save(
                                     adb.diagnostics(), lastFirmwareProbe, lastTelemetrySample,
                                     lastFidDiscovery, lastChargingSample,
-                                    candidateStream.currentStatus()
+                                    candidateStream.currentStatus(), lastMotionSample
                                 )
                             } catch (_: Exception) {
                                 mapOf("ok" to false, "error" to "export_failed")
@@ -121,7 +122,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "adbConnect", "adbDisconnect", "adbProbe", "adbProbeSoc",
                     "adbProbeFirmware", "telemetrySample", "dashboardSample", "adbProbeFids",
-                    "chargingSample" -> {
+                    "chargingSample", "motionProbe" -> {
                         if (call.method == "adbDisconnect" || call.method == "adbConnect") {
                             candidateStream.stop("adb_session_changed")
                         }
@@ -129,16 +130,19 @@ class MainActivity : FlutterActivity() {
                             val response = when (call.method) {
                                 "adbConnect" -> {
                                     lastChargingSample = emptyMap()
+                                    lastMotionSample = emptyMap()
                                     adb.connect()
                                 }
                                 "adbDisconnect" -> {
                                     lastChargingSample = emptyMap()
+                                    lastMotionSample = emptyMap()
                                     adb.disconnect()
                                 }
                                 "adbProbeSoc" -> adb.probeSoc()
                                 "adbProbeFirmware" -> adb.probeFirmware().also { lastFirmwareProbe = it }
                                 "adbProbeFids" -> adb.discoverFidCatalog().also { lastFidDiscovery = it }
                                 "chargingSample" -> adb.sampleChargingCandidates().also { lastChargingSample = it }
+                                "motionProbe" -> adb.probeMotionCandidates().also { lastMotionSample = it }
                                 "telemetrySample" -> adb.sampleTelemetry().also { lastTelemetrySample = it }
                                 "dashboardSample" -> adb.sampleDashboardCandidates().also { lastTelemetrySample = it }
                                 else -> adb.probe()

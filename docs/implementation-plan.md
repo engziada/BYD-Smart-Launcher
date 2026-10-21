@@ -18,7 +18,7 @@
 - [x] Kotlin ↔ Flutter channel, explicit demo isolation and bounded read-only ADB 127.0.0.1:5555 handshake.
 - [x] On-car ADB/DiLink 5 identity and read-only firmware FID reflection; SOC and odometer have some owner-confirmed OEM samples.
 - [x] v0.2.0+3 **diagnostic dashboard preview**: operator-started two-FID candidate polling every 15 seconds while foregrounded (superseded).\n- [x] v0.3.0+4 **native stream implemented in source**: firmware-gated two-FID GET-only candidate samples every 5 seconds when foreground, EventChannel, stale/dropout bounds, explicit stop and schema-4 diagnostics. **Owner on-car validation still pending.**
-- [x] Pure testable camera/rule logic, draft local automation settings, encrypted Telegram bot settings and manually triggered TEST outbox.
+- [x] v0.3.1+5 **manual raw speed/gear research probe implemented in source**: device- and identity-gated dynamic firmware FIDs, GET-only, values not mapped to km/h or gear letters; schema-5 sanitized report. On-car validation pending. Binary AndroidManifest attributes audited for Kinex/BYDMate without copying assets.\n- [x] Pure testable camera/rule logic, draft local automation settings, encrypted Telegram bot settings and manually triggered TEST outbox.
 - [ ] Integrated persistent BYD helper, model-verified general telemetry event bus, actual permitted vehicle controls, validated real range, native blind-spot camera and automatic Telegram alerts. **All outstanding.**
 
 ---

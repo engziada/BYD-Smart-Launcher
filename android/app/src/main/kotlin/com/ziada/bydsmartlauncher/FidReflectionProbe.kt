@@ -23,6 +23,8 @@ object FidReflectionProbe {
             printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_STATISTIC")
             printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_LIGHT")
             printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_CHARGING")
+            printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_SPEED")
+            printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_GEARBOX")
 
             val features = Class.forName("android.hardware.bydauto.BYDAutoFeatureIds")
             val byName = features.declaredClasses.associateBy { it.simpleName }
@@ -42,6 +44,10 @@ object FidReflectionProbe {
                     "CHARGING_TYPE"
                 )) printInt(charging, "Charging", name)
             }
+            val speed = byName["Speed"]
+            if (speed != null) printInt(speed, "Speed", "SPEED_AUTO_SPEED")
+            val gearbox = byName["Gearbox"]
+            if (gearbox != null) printInt(gearbox, "Gearbox", "GEARBOX_AUTO_MODE_TYPE")
             val light = byName["Light"]
             if (light != null) printInt(light, "Light", "LIGHT_TURN_SIGNAL_LIGHT")
         } catch (_: Throwable) {
