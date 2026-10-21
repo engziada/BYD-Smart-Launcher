@@ -1,11 +1,25 @@
 name: Flutter and Android checks
+# Development branches do not trigger CI on every intermediate commit.
+# Use draft PRs while implementing; the final ready-for-review event runs CI.
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+# One active validation run per PR. Superseded PR checks are cancelled rather
+# than producing obsolete red failures. Never cancel main/release jobs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 jobs:
   flutter:
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
