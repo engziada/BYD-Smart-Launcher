@@ -3,23 +3,25 @@
 Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025** head unit.
 
 ## Current status
-**M1 native transport in progress.** The app has opt-in BYDMate-derived ADB RSA/TLS transport and diagnostic read-only SOC, cumulative-energy and odometer **candidate probes**. These fallback FIDs and mileage scale have **not** been validated on the Song Plus head unit. This is source code and a safe, no-vehicle-connected prototype; **not** a functioning DiLink camera/ADB/Telegram integration or a tested APK. Missing vehicle values display as unavailable instead of invented values.
+**v0.2.0+3 — Technical Preview, not an accepted functional MVP.** The app has an explicit on-device ADB RSA/TLS connection, read-only SOC/odometer candidate sampling, firmware FID discovery, and a start/stop dashboard. The owner confirmed some SOC/odometer readings against the stock BYD interface; this does **not** validate a live telemetry stream, native helper, vehicle writes, real range, OEM camera pipeline or Telegram automatic events. Unavailable values are not fabricated.
 
-## Priorities
-1. BYDMate-inspired turn-signal blind-spot camera integration (factory camera takes priority)
-2. Local automation rules (triggers -> conditions -> gated actions)
-3. Telegram bot reporting on vehicle on/off (secrets never committed)
-4. Real range and consumption from verified vehicle data
-5. Verified comfort-only vehicle controls
-6. On-device ADB and embedded helper, no second app required (initial permission setup may still be needed)
+## Current implementation priorities (owner revised 2026-10-21)
+1. **Recheck parent-project references, SDKs, APIs and ADB commands** — BYDMate and Kinex. Record exactly which source and version supports each API, and which capabilities are verified for the owner's DiLink 5.0 OS 2602.
+2. **Live telemetry** — robust native helper/read-only event stream and firmware-specific validation.
+3. **Vehicle control** — only firmware-verified **comfort controls** with explicit operator approval, fresh parked/gear/speed gates, independent readback and fail-closed safety checks.
+4. **Real range** — independently validated BMS consumption and trip-history-based estimate.
+5. **Blind spot** — left/right camera integration triggered by indicators; OEM reverse/360 overrides all custom camera surfaces.
+6. **Telegram** — manual/approved real status and reliable deduplicated verified vehicle events.
 
-Phone integration and Android Auto are out of scope for this phase.
+**Automations are deferred after these six priorities.** Previous Blind-Spot-first / Telegram-before-controls plans are superseded. Phone and Android Auto remain out of scope.
+
+**Canonical execution source:** [docs/implementation-plan.md](docs/implementation-plan.md), [parent API/SDK/ADB audit](docs/parent-project-api-adb-audit.md) and [MVP acceptance](docs/mvp-scope.md). Historical issue numbers don't represent the new priority ranking.
 
 ## Approach
 - Flutter UI, Kotlin Android platform bridge, Kotlin vehicle modules.
 - One APK once integrated, with no dependence on a separately installed BYDMate app.
 - No proprietary Kinex code, extracted 3D models, APK libraries, or artwork are included.
-- BYDMate v4.0.1 provides the licensed ADB handshake implementation; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Ported source must preserve its [PolyForm Noncommercial 1.0.0 license](https://github.com/AndyShaman/BYDMate/blob/v4.0.1/LICENSE) and required copyright notice. **Commercial reuse requires appropriate permission.**
+- BYDMate v4.0.1 provides the licensed ADB handshake implementation; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Kinex's public `kinex-dist` repo provides release/install guidance, **not confirmed source code or an SDK**. Ported source must preserve its [PolyForm Noncommercial 1.0.0 license](https://github.com/AndyShaman/BYDMate/blob/v4.0.1/LICENSE) and required copyright notice. **Commercial reuse requires appropriate permission.**
 - This repository is **currently public**. Never add Telegram tokens, credentials, vehicle identifiers, or diagnostic dumps containing personal data.
 
 ## Build
