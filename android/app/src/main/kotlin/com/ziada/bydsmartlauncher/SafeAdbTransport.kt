@@ -118,12 +118,19 @@ internal class SafeAdbTransport(context: Context) {
             val device = discovery.catalog.deviceOf("STATISTIC")
             val socFid = discovery.catalog.fidOf("Statistic.STATISTIC_ELEC_PERCENTAGE")
             val odometerFid = discovery.catalog.fidOf("Statistic.STATISTIC_TOTAL_MILEAGE")
-            // These are owner-device observed FIDs, NOT general Song Plus values.
-            // Other firmware must be investigated, never silently decoded.
-            if (device != 1014 || socFid != 1246777400 || odometerFid != 1246765072) {
+            val model = FirmwareDiagnostics.property(active.exec("getprop ro.product.model"))
+            val manufacturer = FirmwareDiagnostics.property(
+                active.exec("getprop ro.product.manufacturer")
+            )
+            val sdk = FirmwareDiagnostics.sdkInt(active.exec("getprop ro.build.version.sdk"))
+            // Same reflected FIDs can occur on another platform. Check firmware
+            // family AND device/symbols before applying the observed mileage scale.
+            if (!OwnerFirmwareReadGate.accepts(
+                    model, manufacturer, sdk, device, socFid, odometerFid
+                )) {
                 return mapOf("ok" to false, "reason" to "firmware_fids_or_scale_unvalidated")
             }
-            nativeStreamCatalog = StreamCatalog(device, socFid, odometerFid)
+            nativeStreamCatalog = StreamCatalog(device!!, socFid!!, odometerFid!!)
             mapOf(
                 "ok" to true, "catalogMatched" to true,
                 "reason" to "owner_observed_fids_only",
