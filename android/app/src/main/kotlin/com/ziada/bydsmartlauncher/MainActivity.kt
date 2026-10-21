@@ -130,10 +130,12 @@ class MainActivity : FlutterActivity() {
                             val response = when (call.method) {
                                 "adbConnect" -> {
                                     lastChargingSample = emptyMap()
+                                    lastMotionSample = emptyMap()
                                     adb.connect()
                                 }
                                 "adbDisconnect" -> {
                                     lastChargingSample = emptyMap()
+                                    lastMotionSample = emptyMap()
                                     adb.disconnect()
                                 }
                                 "adbProbeSoc" -> adb.probeSoc()
