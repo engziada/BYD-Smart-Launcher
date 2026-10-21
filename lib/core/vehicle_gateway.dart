@@ -14,6 +14,7 @@ abstract interface class VehicleGateway {
   Future<Map<Object?, Object?>> probeFirmware();
   Future<Map<Object?, Object?>> probeFidCatalog();
   Future<Map<Object?, Object?>> sampleChargingCandidates();
+  Future<Map<Object?, Object?>> probeMotionCandidates();
   Future<Map<Object?, Object?>> sampleTelemetry();
   Future<Map<Object?, Object?>> sampleDashboardCandidates();
   Stream<Map<Object?, Object?>> get candidateStream;
@@ -121,6 +122,9 @@ class PlatformVehicleGateway implements VehicleGateway {
 
   @override
   Future<Map<Object?, Object?>> sampleChargingCandidates() => _adbAction('chargingSample');
+
+  @override
+  Future<Map<Object?, Object?>> probeMotionCandidates() => _adbAction('motionProbe');
 
   @override
   Future<Map<Object?, Object?>> sampleTelemetry() => _adbAction('telemetrySample');
@@ -270,6 +274,10 @@ class DemoVehicleGateway implements VehicleGateway {
   @override
   Future<Map<Object?, Object?>> sampleChargingCandidates() async =>
       {'ok': false, 'status': 'demo_only', 'automaticEventEligible': false};
+
+  @override
+  Future<Map<Object?, Object?>> probeMotionCandidates() async =>
+      {'ok': false, 'status': 'demo_only', 'vehicleWriteAuthorized': false};
 
   @override
   Future<Map<Object?, Object?>> sampleTelemetry() async =>
