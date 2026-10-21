@@ -10,8 +10,8 @@ import java.util.concurrent.Executors
 import com.ziada.bydsmartlauncher.automation.LocalAutomationRepository
 
 /**
- * Native bridge: ADB handshake and limited read-only Android-version probe. Still NO BYD
- * autoservice connection, no camera pipeline, and no vehicle control.
+ * Native ADB diagnostics + foreground, operator-enabled firmware-gated READ-only candidate
+ * stream. No vehicle writes, persistent helper, camera access or verified safety interlocks.
  */
 class MainActivity : FlutterActivity() {
     private val worker = Executors.newSingleThreadExecutor()
@@ -19,8 +19,14 @@ class MainActivity : FlutterActivity() {
     private val adb by lazy { SafeAdbTransport(applicationContext) }
     private val telegram by lazy { TelegramBotService(applicationContext) }
     private val ruleStore by lazy { LocalAutomationRepository(applicationContext) }
+    private val candidateStream by lazy {
+        NativeReadOnlyStream(adb, worker, mainHandler) { sample ->
+            lastTelemetrySample = sample
+        }
+    }
     private val methods = "com.ziada.byd_smart_launcher/vehicle"
     private val events = "com.ziada.byd_smart_launcher/telemetry"
+    private val nativeCandidateEvents = "com.ziada.byd_smart_launcher/native_candidate_stream"
     @Volatile private var lastFirmwareProbe: Map<String, Any?> = emptyMap()
     @Volatile private var lastTelemetrySample: Map<String, Any?> = emptyMap()
     @Volatile private var lastFidDiscovery: Map<String, Any?> = emptyMap()
@@ -47,7 +53,12 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getSnapshot" -> result.success(snapshot())
-                    "getDiagnostics" -> result.success(adb.diagnostics())
+                    "getDiagnostics" -> result.success(adb.diagnostics().plus(
+                        "streamState" to candidateStream.currentStatus()["streamState"]
+                    ))
+                    "nativeCandidateStreamStatus" -> result.success(candidateStream.currentStatus())
+                    "nativeCandidateStreamStart" -> result.success(candidateStream.start())
+                    "nativeCandidateStreamStop" -> result.success(candidateStream.stop())
                     "diagnosticsExport" -> {
                         worker.execute {
                             val response = try {
@@ -110,6 +121,9 @@ class MainActivity : FlutterActivity() {
                     "adbConnect", "adbDisconnect", "adbProbe", "adbProbeSoc",
                     "adbProbeFirmware", "telemetrySample", "dashboardSample", "adbProbeFids",
                     "chargingSample" -> {
+                        if (call.method == "adbDisconnect" || call.method == "adbConnect") {
+                            candidateStream.stop("adb_session_changed")
+                        }
                         worker.execute {
                             val response = when (call.method) {
                                 "adbConnect" -> {
@@ -141,9 +155,24 @@ class MainActivity : FlutterActivity() {
                 }
                 override fun onCancel(arguments: Any?) {}
             })
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, nativeCandidateEvents)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, sink: EventChannel.EventSink) {
+                    candidateStream.listen(sink)
+                }
+                override fun onCancel(arguments: Any?) {
+                    candidateStream.cancel()
+                }
+            })
+    }
+
+    override fun onStop() {
+        candidateStream.stop("app_not_foreground")
+        super.onStop()
     }
 
     override fun onDestroy() {
+        candidateStream.stop("activity_destroyed")
         worker.execute { adb.disconnect() }
         worker.shutdown()
         super.onDestroy()
