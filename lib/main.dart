@@ -88,6 +88,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   bool _demo = false;
   String _diagnostics = 'Vehicle diagnostics not requested';
   Map<Object?, Object?> _chargingCandidate = {};
+  Map<Object?, Object?> _motionCandidate = {};
   bool _adbBusy = false;
   final _tgToken = TextEditingController();
   final _tgChat = TextEditingController();
@@ -154,6 +155,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           : const PlatformVehicleGateway();
       _snapshot = VehicleSnapshot.unavailable();
       _chargingCandidate = {};
+      _motionCandidate = {};
       _rangeCandidate = {};
       _dashboardSampledAt = null;
     });
@@ -360,6 +362,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         'firmware' => await _gateway.probeFirmware(),
         'fids' => await _gateway.probeFidCatalog(),
         'charging' => await _gateway.sampleChargingCandidates(),
+        'motion' => await _gateway.probeMotionCandidates(),
         _ => await _gateway.probeAdb(),
       };
       final snapshot = await _gateway.getSnapshot();
@@ -368,12 +371,21 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           _snapshot = snapshot;
           if (action == 'charging') {
             _chargingCandidate = response;
+          } else if (action == 'motion') {
+            _motionCandidate = response;
           } else if (action == 'disconnect' || action == 'connect') {
             _chargingCandidate = {};
+            _motionCandidate = {};
             _rangeCandidate = {};
             _dashboardSampledAt = null;
           }
-          _diagnostics = action == 'charging'
+          _diagnostics = action == 'motion'
+              ? response['ok'] == true
+                  ? 'Raw speed/gear values sampled. Units and gear enum are '
+                    'UNVERIFIED. These cannot authorize vehicle controls.'
+                  : 'Motion probe unavailable: '
+                    '${response['status'] ?? response['error'] ?? 'unknown'}.'
+              : action == 'charging'
               ? response['ok'] == true
                   ? 'Charging candidate sampled. Not verified; '
                     'no charge-complete event or Telegram automation is enabled.'
@@ -754,9 +766,22 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 icon: const Icon(Icons.ev_station_outlined),
                 label: const Text('Charging diagnostic once'),
               ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _dashboardStarting || _dashboardEnabled)
+                    ? null : () => _adbAction('motion'),
+                icon: const Icon(Icons.speed_outlined),
+                label: const Text('Probe raw speed & gear once'),
+              ),
             ]),
           if (_rangeBusy || _dashboardStarting)
             const LinearProgressIndicator(),
+          if (!_demo && _motionCandidate.isNotEmpty)
+            _info('Speed & gear — UNVERIFIED raw values',
+                'Speed raw: ${_motionCandidate['speedRawFloatCandidate'] ?? '—'} '
+                '(units unknown) • Gear raw: '
+                '${_motionCandidate['gearRawIntCandidate'] ?? '—'} '
+                '(enum unknown). NEVER used for controls.',
+                Icons.speed_outlined),
           if (!_demo && _chargingCandidate.isNotEmpty)
             _info('Charging state — hypothesis',
                 'Connector ${_chargingCandidate['gunKindCandidate'] ?? 'unknown'} • '
@@ -986,6 +1011,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               'BYD vehicle controls or camera feeds.'),
           const SizedBox(height: 8),
           Text(_diagnostics),
+          if (_motionCandidate.isNotEmpty)
+            _info(
+              'Motion firmware diagnostic — RAW ONLY',
+              'Speed: ${_motionCandidate['speedRawFloatCandidate'] ?? '—'} '
+              '(unit unknown) • Gear: '
+              '${_motionCandidate['gearRawIntCandidate'] ?? '—'} '
+              '(enum unknown) • Controls disabled.',
+              Icons.speed_outlined,
+            ),
           if (_chargingCandidate.isNotEmpty)
             _info(
               'Charging diagnostic — UNVERIFIED',
@@ -1032,6 +1066,12 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('charging'),
                 icon: const Icon(Icons.ev_station_outlined),
                 label: const Text('Read charging state once (read-only candidate)'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _demo || _dashboardStarting || _dashboardEnabled)
+                    ? null : () => _adbAction('motion'),
+                icon: const Icon(Icons.speed_outlined),
+                label: const Text('Probe raw speed & gear (GET-only)'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),
