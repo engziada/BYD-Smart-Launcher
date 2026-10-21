@@ -16,6 +16,9 @@ abstract interface class VehicleGateway {
   Future<Map<Object?, Object?>> sampleChargingCandidates();
   Future<Map<Object?, Object?>> sampleTelemetry();
   Future<Map<Object?, Object?>> sampleDashboardCandidates();
+  Stream<Map<Object?, Object?>> get candidateStream;
+  Future<Map<Object?, Object?>> startNativeCandidateStream();
+  Future<Map<Object?, Object?>> stopNativeCandidateStream();
   Future<Map<Object?, Object?>> rangeCapacityStatus();
   Future<Map<Object?, Object?>> setRangeCapacity(double? kwh);
   Future<Map<Object?, Object?>> automationStatus();
@@ -41,6 +44,8 @@ class PlatformVehicleGateway implements VehicleGateway {
       MethodChannel('com.ziada.byd_smart_launcher/vehicle');
   static const EventChannel _events =
       EventChannel('com.ziada.byd_smart_launcher/telemetry');
+  static const EventChannel _nativeEvents =
+      EventChannel('com.ziada.byd_smart_launcher/native_candidate_stream');
 
   @override
   Future<VehicleSnapshot> getSnapshot() async {
@@ -62,6 +67,13 @@ class PlatformVehicleGateway implements VehicleGateway {
       .map((dynamic value) => value is Map
           ? VehicleSnapshot.fromMap(value.cast<Object?, Object?>())
           : VehicleSnapshot.unavailable());
+
+  @override
+  Stream<Map<Object?, Object?>> get candidateStream => _nativeEvents
+      .receiveBroadcastStream()
+      .map((dynamic value) => value is Map
+          ? value.cast<Object?, Object?>()
+          : <Object?, Object?>{'streamState': 'stopped', 'reason': 'malformed_event'});
 
   @override
   Future<Map<Object?, Object?>> getDiagnostics() async {
@@ -115,6 +127,14 @@ class PlatformVehicleGateway implements VehicleGateway {
 
   @override
   Future<Map<Object?, Object?>> sampleDashboardCandidates() => _adbAction('dashboardSample');
+
+  @override
+  Future<Map<Object?, Object?>> startNativeCandidateStream() =>
+      _adbAction('nativeCandidateStreamStart');
+
+  @override
+  Future<Map<Object?, Object?>> stopNativeCandidateStream() =>
+      _adbAction('nativeCandidateStreamStop');
 
   @override
   Future<Map<Object?, Object?>> rangeCapacityStatus() => _adbAction('rangeCapacityStatus');
@@ -257,6 +277,17 @@ class DemoVehicleGateway implements VehicleGateway {
 
   @override
   Future<Map<Object?, Object?>> sampleDashboardCandidates() async =>
+      {'ok': false, 'reason': 'demo_only'};
+
+  @override
+  Stream<Map<Object?, Object?>> get candidateStream => const Stream.empty();
+
+  @override
+  Future<Map<Object?, Object?>> startNativeCandidateStream() async =>
+      {'ok': false, 'reason': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> stopNativeCandidateStream() async =>
       {'ok': false, 'reason': 'demo_only'};
 
   @override

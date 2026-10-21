@@ -1,7 +1,7 @@
 name: byd_smart_launcher
 description: Single-APK landscape BYD launcher research and development prototype.
 publish_to: none
-version: 0.2.0+3
+version: 0.3.0+4
 environment:
   sdk: '>=3.4.0 <4.0.0'
 dependencies:

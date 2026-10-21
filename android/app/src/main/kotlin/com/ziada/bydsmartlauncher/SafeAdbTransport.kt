@@ -18,6 +18,10 @@ internal class SafeAdbTransport(context: Context) {
     private val consumption = ConsumptionWindow()
 
     private var client: AdbProtocolClient? = null
+    /** In-memory only. Never persisted as a write capability or reused across reconnects. */
+    @Volatile private var nativeStreamCatalog: StreamCatalog? = null
+    private data class StreamCatalog(val device: Int, val socFid: Int, val odometerFid: Int)
+
 
     @Volatile private var state: String = "not_connected"
     @Volatile private var failureReason: String? = null
@@ -28,6 +32,7 @@ internal class SafeAdbTransport(context: Context) {
     fun connect(): Map<String, Any?> {
         if (state == "connected" && client?.isConnected() == true) return diagnostics()
         state = "connecting"
+        nativeStreamCatalog = null
         failureReason = null
         androidVersion = null
         return try {
@@ -86,6 +91,97 @@ internal class SafeAdbTransport(context: Context) {
             "source" to "operator_provided",
             "firmwareVerified" to false,
         )
+    }
+
+    /**
+     * P2: operator-invoked, read-only, firmware-derived FID handshake.
+     *
+     * The public BYDMate Song Plus fixture differs from this owner's actual
+     * DiLink5.0 FIDs. Until scales can be independently decoded, require the
+     * exact three values already observed on the owner's real unit. Any other
+     * firmware is explicitly unsupported, without falling back to guessing.
+     */
+    @Synchronized
+    fun prepareNativeCandidateStream(): Map<String, Any?> {
+        nativeStreamCatalog = null
+        if (state != "connected" || client?.isConnected() != true) {
+            return mapOf("ok" to false, "reason" to "adb_not_connected")
+        }
+        val cmd = FidReadOnlyDiscovery.command(appContext.packageCodePath)
+            ?: return mapOf("ok" to false, "reason" to "invalid_apk_path")
+        return try {
+            val active = client ?: return mapOf("ok" to false, "reason" to "adb_not_connected")
+            val discovery = FidReadOnlyDiscovery.parse(active.exec(cmd))
+            if (!discovery.readyForCandidateProbes) {
+                return mapOf("ok" to false, "reason" to "firmware_catalog_unavailable")
+            }
+            val device = discovery.catalog.deviceOf("STATISTIC")
+            val socFid = discovery.catalog.fidOf("Statistic.STATISTIC_ELEC_PERCENTAGE")
+            val odometerFid = discovery.catalog.fidOf("Statistic.STATISTIC_TOTAL_MILEAGE")
+            val model = FirmwareDiagnostics.property(active.exec("getprop ro.product.model"))
+            val manufacturer = FirmwareDiagnostics.property(
+                active.exec("getprop ro.product.manufacturer")
+            )
+            val sdk = FirmwareDiagnostics.sdkInt(active.exec("getprop ro.build.version.sdk"))
+            // Same reflected FIDs can occur on another platform. Check firmware
+            // family AND device/symbols before applying the observed mileage scale.
+            if (!OwnerFirmwareReadGate.accepts(
+                    model, manufacturer, sdk, device, socFid, odometerFid
+                )) {
+                return mapOf("ok" to false, "reason" to "firmware_fids_or_scale_unvalidated")
+            }
+            nativeStreamCatalog = StreamCatalog(device!!, socFid!!, odometerFid!!)
+            mapOf(
+                "ok" to true, "catalogMatched" to true,
+                "reason" to "owner_observed_fids_only",
+                "firmwareVerified" to false,
+                "vehicleWriteAuthorized" to false
+            )
+        } catch (_: Exception) {
+            mapOf("ok" to false, "reason" to "firmware_reflection_failed")
+        }
+    }
+
+    /**
+     * P2 native read-only candidate tick. Exactly TWO fixed autoservice GETs;
+     * no energy counter, no control/permission/daemon/SET transactions.
+     */
+    @Synchronized
+    fun nativeCandidateTick(): Map<String, Any?> {
+        val catalog = nativeStreamCatalog
+            ?: return mapOf("ok" to false, "reason" to "catalog_not_prepared")
+        if (state != "connected" || client?.isConnected() != true) {
+            nativeStreamCatalog = null
+            return mapOf("ok" to false, "reason" to "adb_disconnected")
+        }
+        return try {
+            val active = client ?: return mapOf("ok" to false, "reason" to "adb_disconnected")
+            val soc = CandidateTelemetry.soc(active.exec(
+                "service call autoservice 7 i32 ${catalog.device} i32 ${catalog.socFid}"
+            ))
+            val odometer = CandidateTelemetry.int(active.exec(
+                "service call autoservice 5 i32 ${catalog.device} i32 ${catalog.odometerFid}"
+            ))?.takeIf { it in 0..10_000_000 }?.div(10.0)
+
+            mapOf(
+                "ok" to (soc != null && odometer != null),
+                "catalogMatched" to true,
+                "socCandidatePercent" to soc,
+                "odometerCandidateKm" to odometer,
+                "capturedAtEpochMs" to System.currentTimeMillis(),
+                "reason" to if (soc != null && odometer != null)
+                    "requires_ongoing_oem_validation" else "invalid_candidate_value",
+                "firmwareVerified" to false,
+                "vehicleWriteAuthorized" to false
+            )
+        } catch (_: Exception) {
+            mapOf("ok" to false, "reason" to "native_candidate_read_failed")
+        }
+    }
+
+    /** No background helper or subprocess; invalidate FID session on Stop. */
+    fun stopNativeCandidateStream() {
+        nativeStreamCatalog = null
     }
 
     /**
@@ -317,6 +413,7 @@ internal class SafeAdbTransport(context: Context) {
 
     @Synchronized
     fun disconnect(): Map<String, Any?> {
+        nativeStreamCatalog = null
         client?.disconnect()
         client = null
         state = "not_connected"
@@ -334,7 +431,7 @@ internal class SafeAdbTransport(context: Context) {
         "transportHost" to "127.0.0.1",
         "transportPort" to 5555,
         "helper" to "not_installed",
-        "vehicleTelemetry" to "not_implemented",
+        "vehicleTelemetry" to "native_candidate_stream_preview_not_verified",
         "writeEnabled" to false,
     )
 

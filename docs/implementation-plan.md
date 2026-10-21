@@ -17,7 +17,7 @@
 - [x] Flutter landscape shell, Status / Range / Controls / Blind Spot / Telegram screens and light-theme switch (UI is not proof of integrations).
 - [x] Kotlin ↔ Flutter channel, explicit demo isolation and bounded read-only ADB 127.0.0.1:5555 handshake.
 - [x] On-car ADB/DiLink 5 identity and read-only firmware FID reflection; SOC and odometer have some owner-confirmed OEM samples.
-- [x] v0.2.0+3 **diagnostic dashboard preview**: operator-started two-FID candidate polling every 15 seconds while foregrounded; not a background real-time stream.
+- [x] v0.2.0+3 **diagnostic dashboard preview**: operator-started two-FID candidate polling every 15 seconds while foregrounded (superseded).\n- [x] v0.3.0+4 **native stream implemented in source**: firmware-gated two-FID GET-only candidate samples every 5 seconds when foreground, EventChannel, stale/dropout bounds, explicit stop and schema-4 diagnostics. **Owner on-car validation still pending.**
 - [x] Pure testable camera/rule logic, draft local automation settings, encrypted Telegram bot settings and manually triggered TEST outbox.
 - [ ] Integrated persistent BYD helper, model-verified general telemetry event bus, actual permitted vehicle controls, validated real range, native blind-spot camera and automatic Telegram alerts. **All outstanding.**
 
@@ -35,12 +35,12 @@
 - [ ] Audit *candidate write controls* under default-deny; require model/firmware-specific safety, fresh stationary state, explicit confirmation and readback. No guessed permissions or blanket helper write access.
 - [ ] Finish the re-audit with documented tests, frozen evidence and explicit blockers. **Do not mark P1 complete from documentation review alone.**
 
-**Exit gate:** `P1_SUPPORTED_APIS.md` with verified and unsupported operations, audit source/commit per item and safe implementation decisions for P2/P3.
+**Source-level inventory begun:** [P1_SUPPORTED_APIS.md](P1_SUPPORTED_APIS.md) (P1 still open pending exhaustive binary/SDK/command audit).\n\n**Exit gate:** `P1_SUPPORTED_APIS.md` with verified and unsupported operations, audit source/commit per item and safe implementation decisions for P2/P3.
 
 ## P2 — Live telemetry (SECOND)
 
 - [ ] Implement single-APK, version-authenticated BYD shell helper and bounded read-only native SDK/Binder bridge based on audited P1 contracts.
-- [ ] Replace dashboard's 15-second foreground candidate samples with a **typed, timestamped, stable event source**; handle subscription, deduplication, reconnection, stale data and head-unit sleep/reboot.
+- [x] Implement first typed native EventChannel **candidate stream** from reflected known SOC/odometer FIDs with timestamp, monotonic sequence, stale suppression and foreground-only lifecycle.\n- [ ] Complete full stable/verified telemetry: native helper version/authentication, background/ignition/sleep/reboot recovery, speed/gear/etc field validation and OEM checks.
 - [ ] Discover and verify SDK/FID mapping for SOC, odometer, speed, gear, vehicle power, charge status, BMS, temperatures, tire pressure, indicators and AC **one field at a time**; unknown fields remain unavailable.
 - [ ] Separate `transportConnected`, `helperAlive`, `firmwareCompatible`, `dataFresh`, `valueVerified`, and `writesAuthorized` — do not equate them.
 - [ ] Exercise missing permissions, ADB disabled, daemon older than APK, process kill, sleep/restart, sample dropouts and fallback.

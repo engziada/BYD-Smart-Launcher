@@ -111,6 +111,31 @@ void main() {
     expect(calls, ['dashboardSample']);
   });
 
+  test('native stream start/stop are operator methods, never present in demo',
+      () async {
+    final called = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      called.add(call.method);
+      return <String, Object?>{
+        'ok': true, 'streamState': 'initializing',
+        'firmwareVerified': false, 'vehicleWriteAuthorized': false,
+      };
+    });
+    const platform = PlatformVehicleGateway();
+    final started = await platform.startNativeCandidateStream();
+    final stopped = await platform.stopNativeCandidateStream();
+    expect(started['ok'], true);
+    expect(started['vehicleWriteAuthorized'], false);
+    expect(stopped['ok'], true);
+    expect(called, ['nativeCandidateStreamStart', 'nativeCandidateStreamStop']);
+
+    const demo = DemoVehicleGateway();
+    expect((await demo.startNativeCandidateStream())['reason'], 'demo_only');
+    expect((await demo.stopNativeCandidateStream())['reason'], 'demo_only');
+    expect(called, ['nativeCandidateStreamStart', 'nativeCandidateStreamStop']);
+  });
+
   test('explicit telemetry reading uses fixed native method', () async {
     final calls = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
