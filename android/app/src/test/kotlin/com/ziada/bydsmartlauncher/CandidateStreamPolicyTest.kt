@@ -44,7 +44,8 @@ class CandidateStreamPolicyTest {
         )
         for (sample in cases) {
             val p = CandidateStreamPolicy()
-            val verdict = p.inspect(sample, 5_000L)
+            val now = if (sample["capturedAtEpochMs"] == 1L) 20_000L else 5_000L
+            val verdict = p.inspect(sample, now)
             assertEquals("stale", verdict["streamState"])
             assertFalse(verdict.containsKey("socCandidatePercent"))
             assertFalse(verdict.containsKey("odometerCandidateKm"))
