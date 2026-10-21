@@ -185,6 +185,74 @@ internal class SafeAdbTransport(context: Context) {
     }
 
     /**
+     * P1/P2 research: operator-invoked SINGLE motion observation.
+     *
+     * The upstream BYDMate FID catalog demonstrates getFloat speed and getInt
+     * gearbox contracts but their meanings are not validated on this Song Plus.
+     * All FIDs are reflected from the running firmware; no Leopard 3 or fixture
+     * fallback. This method never produces "parked", a km/h label or permission
+     * for any vehicle control.
+     */
+    @Synchronized
+    fun probeMotionCandidates(): Map<String, Any?> {
+        fun unavailable(reason: String): Map<String, Any?> = mapOf(
+            "ok" to false,
+            "status" to reason,
+            "speedUnitsVerified" to false,
+            "gearEnumVerified" to false,
+            "stationaryStateVerified" to false,
+            "vehicleWriteAuthorized" to false,
+            "automaticEventEligible" to false
+        )
+        if (state != "connected" || client?.isConnected() != true) {
+            return unavailable("adb_not_connected")
+        }
+        val command = FidReadOnlyDiscovery.command(appContext.packageCodePath)
+            ?: return unavailable("invalid_apk_path")
+        return try {
+            val active = client ?: return unavailable("adb_not_connected")
+            val discovery = FidReadOnlyDiscovery.parse(active.exec(command))
+            if (!discovery.readyForCandidateProbes ||
+                !discovery.readyForMotionCandidateProbes) {
+                return unavailable("motion_fids_not_present")
+            }
+            val catalog = discovery.catalog
+            val model = FirmwareDiagnostics.property(active.exec("getprop ro.product.model"))
+            val manufacturer = FirmwareDiagnostics.property(
+                active.exec("getprop ro.product.manufacturer")
+            )
+            val sdk = FirmwareDiagnostics.sdkInt(active.exec("getprop ro.build.version.sdk"))
+            val ownerGate = OwnerFirmwareReadGate.accepts(
+                model, manufacturer, sdk,
+                catalog.deviceOf("STATISTIC"),
+                catalog.fidOf("Statistic.STATISTIC_ELEC_PERCENTAGE"),
+                catalog.fidOf("Statistic.STATISTIC_TOTAL_MILEAGE")
+            )
+            val speedDevice = catalog.deviceOf("SPEED")
+            val gearboxDevice = catalog.deviceOf("GEARBOX")
+            val speedFid = catalog.fidOf("Speed.SPEED_AUTO_SPEED")
+            val gearFid = catalog.fidOf("Gearbox.GEARBOX_AUTO_MODE_TYPE")
+            // Only research the two known read-only BYD device groups. Firmware
+            // must supply the FID values itself (they vary between builds).
+            if (!ownerGate || speedDevice != 1013 || gearboxDevice != 1011 ||
+                speedFid == null || gearFid == null) {
+                return unavailable("motion_firmware_unverified")
+            }
+
+            val speed = CandidateTelemetry.float(active.exec(
+                "service call autoservice 7 i32 $speedDevice i32 $speedFid"
+            ))
+            val gear = CandidateTelemetry.int(active.exec(
+                "service call autoservice 5 i32 $gearboxDevice i32 $gearFid"
+            ))
+            MotionCandidatePolicy.interpret(speed, gear)
+                .plus("capturedAtEpochMs" to System.currentTimeMillis())
+        } catch (_: Exception) {
+            unavailable("motion_probe_failed")
+        }
+    }
+
+    /**
      * Foreground MVP dashboard sample: only the two previously OEM-matched
      * read-only FIDs (SOC and odometer). Intentionally independent of the
      * unresolved cumulative energy counter, trip window, and charging state.
