@@ -102,4 +102,4 @@
 - Never commit owner diagnostic raw exports, VIN, IMEI, fingerprints, bot tokens, credentials or precise car location.
 
 ## Traceability to original issues
-Historical GitHub issue numbers do not define priority: P1 = new parent audit issue; P2 = [#1](../issues/1); P3 = [#6](../issues/6); P4 = [#3](../issues/3); P5 = [#2](../issues/2); P6 = [#5](../issues/5); automation [#4](../issues/4) deferred. Umbrella acceptance: [#12](../issues/12).
+Historical GitHub issue numbers do not define priority: P1 = new parent audit issue; P2 = [#1](https://github.com/engziada/BYD-Smart-Launcher/issues/1); P3 = [#6](https://github.com/engziada/BYD-Smart-Launcher/issues/6); P4 = [#3](https://github.com/engziada/BYD-Smart-Launcher/issues/3); P5 = [#2](https://github.com/engziada/BYD-Smart-Launcher/issues/2); P6 = [#5](https://github.com/engziada/BYD-Smart-Launcher/issues/5); automation [#4](https://github.com/engziada/BYD-Smart-Launcher/issues/4) deferred. Umbrella acceptance: [#12](https://github.com/engziada/BYD-Smart-Launcher/issues/12).
