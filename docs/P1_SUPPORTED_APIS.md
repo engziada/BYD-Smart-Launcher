@@ -9,6 +9,17 @@
 3. [Kinex distribution README](https://github.com/lexwah/kinex-dist/blob/main/README.md) supports some DiLink 5 / Song Plus vehicles; it is **not** a public SDK or full application source. Prior owner-supplied static APK assessment: `com.lexwah.kinex` / 0.5.3, Flutter AOT, proprietary `libkxcore.so` and `KinexBlindSpotStateReceiver` identifier; public contract unknown. APK sha256 `61571028e8f397bd7d384047cdc5551b2974ae09feeac6d957c74bfc5a5bd471`, compared to owner upload in private environment. **Do not copy assets/code**.
 4. Owner's **private** 2026-10-21 on-car schema-3 report: DiLink5.0 Android 12, ADB connected, `autoservicePresent=true`, owner-device reflection SOC FID `1246777400`, odometer FID `1246765072`, statistic device `1014`; candidate SOC `75%`, odometer `42069.9 km` (`420683` raw in a **separately timed** catalog sample). No OEM side-by-side confirmation of this newest sample. `helper=not_installed`, `vehicleTelemetry=not_implemented`, `writeEnabled=false`. Never upload raw diagnostics to public GitHub.
 
+## Owner-uploaded APK manifest string-pool audit (static, 2026-10-21)
+
+The original private APKs were inspected **without installing or executing them**; this pass decoded the binary AndroidManifest.xml **string pools** (which list identifiers appearing in compiled manifest XML) and confirms these declared names, **not** whether Android grants the permissions or whether the services actually function.
+
+| Kinex 0.5.3 APK | BYDMate 4.0.1 APK |
+| --- | --- |
+| `com.lexwah.kinex`, `KinexBlindSpotStateReceiver`, `KinexDl5BootReceiver`, `KinexBottomBarOverlayService`, `KinexAaReceiverService` in manifest strings. | `com.bydmate.app`, `TrackingService`, `BootReceiver`, `HelperBinderReceiver`, `FidRecorderReceiver` in manifest strings. |
+| Permission names present include `CAMERA`, `CAPTURE_VIDEO_OUTPUT`, `WRITE_SECURE_SETTINGS`, `INTERNAL_SYSTEM_WINDOW`, `SYSTEM_ALERT_WINDOW`, `BYDACQUISITION_SEND_BUFFER`, `READ_LOGS`, `DUMP`, `INTERNET`. | Permission names present include `CAMERA`, `SYSTEM_ALERT_WINDOW`, `PACKAGE_USAGE_STATS`, `WRITE_SECURE_SETTINGS`, `READ_LOGS`, `DUMP`, `FOREGROUND_SERVICE`, `WAKE_LOCK`, `INTERNET`. |
+
+**Inference boundary:** Presence in the string pool can indicate a declaration, descriptor or reference; it cannot prove `PackageManager` permission grants, export policy, shell UID access, Binder interface methods or OEM trust. The more precise node/attribute/SDK-target check and on-device tests are still P1 open items. Kinex native `libkxcore.so` API remains opaque and proprietary; never link/copy it without authorization.
+
 ## BYD read-only command and SDK map
 
 | Feature | SDK symbol | BYDMate fallback device/FID, GET tx, units | Song Plus reference fixture FID | Owner-car evidence / decision |
