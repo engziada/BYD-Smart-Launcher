@@ -65,6 +65,6 @@ This is the **initial source-index and gap register**, NOT a claim that every AP
 - Do not move P3 ahead of P2 **in execution**, even if driver-facing controls appear more attractive; P3 implementation can begin with a **non-actuating simulator** while P2 stream and firmware gates are being established.
 
 ## Audit sources for follow-up
-- [Prior local technical assessment](../README.md) for ownership/licensing history (not a substitute for re-verification).
+- Earlier user-provided technical assessment `BYD_Smart_Launcher_Technical_Assessment.md` (separate project history artifact, not part of this public repo): static package/SDK/manifest inventory; treat as evidence to recheck, not as current firmware proof.
 - BYDMate [README.en](https://github.com/AndyShaman/BYDMate/blob/main/README.en.md), [GitHub sources](https://github.com/AndyShaman/BYDMate).
 - Kinex [distribution README](https://github.com/lexwah/kinex-dist/blob/main/README.md) and [official site](https://kinex.lexwah.com/).
