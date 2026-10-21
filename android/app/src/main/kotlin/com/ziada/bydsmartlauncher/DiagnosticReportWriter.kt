@@ -37,9 +37,16 @@ internal class DiagnosticReportWriter(private val context: Context) {
             "chargeStateCandidate", "source", "firmwareVerified",
             "completionConfirmed", "automaticEventEligible", "vehicleWriteAuthorized"
         )
+        private val STREAM_KEYS = setOf(
+            "streamState", "reason", "sequence", "failureStreak",
+            "catalogMatched", "firmwareVerified", "vehicleWriteAuthorized",
+            "automaticEventEligible"
+        )
         private val TELEMETRY_KEYS = setOf(
             "ok", "socCandidatePercent", "energyCandidateKwh", "odometerCandidateKm",
             "capturedAtEpochMs", "vehicleWriteAuthorized",
+            "streamState", "sequence", "catalogMatched", "automaticEventEligible",
+            "odometerScaleCandidate",
             "sampleCount", "windowDistanceKm", "firmwareVerified",
             "odometerScaleAssumption", "source", "reason"
         )
@@ -67,13 +74,14 @@ internal class DiagnosticReportWriter(private val context: Context) {
         firmware: Map<String, Any?>,
         telemetry: Map<String, Any?>,
         fidDiscovery: Map<String, Any?> = emptyMap(),
-        charging: Map<String, Any?> = emptyMap()
+        charging: Map<String, Any?> = emptyMap(),
+        nativeStream: Map<String, Any?> = emptyMap()
     ): Map<String, Any?> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return mapOf("ok" to false, "error" to "android_10_required")
         }
         val document = JSONObject()
-            .put("schema", 3)
+            .put("schema", 4)
             .put("exportedAtUtc", Instant.now().toString())
             .put("verification", "READ_ONLY_UNVERIFIED_NO_VEHICLE_WRITES")
             .put("transport", safeFields(transport, TRANSPORT_KEYS))
@@ -81,6 +89,7 @@ internal class DiagnosticReportWriter(private val context: Context) {
             .put("telemetryCandidate", safeFields(telemetry, TELEMETRY_KEYS))
             .put("fidCatalogCandidate", safeFields(fidDiscovery, FID_KEYS))
             .put("chargingCandidate", safeFields(charging, CHARGING_KEYS))
+            .put("nativeStreamCandidate", safeFields(nativeStream, STREAM_KEYS))
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "byd-diagnostics-${System.currentTimeMillis()}.json")
