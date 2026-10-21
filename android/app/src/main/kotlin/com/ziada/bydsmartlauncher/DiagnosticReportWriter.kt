@@ -26,10 +26,18 @@ internal class DiagnosticReportWriter(private val context: Context) {
             "ok", "status", "source", "symbolCount", "deviceCount",
             "statisticDeviceCandidate", "socFidCandidate", "odometerFidCandidate",
             "chargingDeviceCandidate", "gunFidCandidate", "bmsFidCandidate", "chargeTypeFidCandidate",
+            "speedDeviceCandidate", "gearboxDeviceCandidate",
+            "speedFidCandidate", "gearFidCandidate",
             "energyFidCandidate", "lightDeviceCandidate", "turnSignalFidCandidate",
             "firmwareVerified", "helperPersistent", "vehicleWriteAuthorized",
             "socCatalogCandidatePercent", "odometerCatalogRawCandidate",
             "catalogReadsOk", "odometerCatalogScaleVerified"
+        )
+        private val MOTION_KEYS = setOf(
+            "ok", "status", "speedRawFloatCandidate", "gearRawIntCandidate",
+            "speedUnitsVerified", "gearEnumVerified", "stationaryStateVerified",
+            "capturedAtEpochMs", "firmwareVerified", "vehicleWriteAuthorized",
+            "automaticEventEligible", "source"
         )
         private val CHARGING_KEYS = setOf(
             "ok", "status", "capturedAtEpochMs", "catalogResolved", "gunStateRaw", "gunKindCandidate",
@@ -75,13 +83,14 @@ internal class DiagnosticReportWriter(private val context: Context) {
         telemetry: Map<String, Any?>,
         fidDiscovery: Map<String, Any?> = emptyMap(),
         charging: Map<String, Any?> = emptyMap(),
-        nativeStream: Map<String, Any?> = emptyMap()
+        nativeStream: Map<String, Any?> = emptyMap(),
+        motion: Map<String, Any?> = emptyMap()
     ): Map<String, Any?> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return mapOf("ok" to false, "error" to "android_10_required")
         }
         val document = JSONObject()
-            .put("schema", 4)
+            .put("schema", 5)
             .put("exportedAtUtc", Instant.now().toString())
             .put("verification", "READ_ONLY_UNVERIFIED_NO_VEHICLE_WRITES")
             .put("transport", safeFields(transport, TRANSPORT_KEYS))
@@ -90,6 +99,7 @@ internal class DiagnosticReportWriter(private val context: Context) {
             .put("fidCatalogCandidate", safeFields(fidDiscovery, FID_KEYS))
             .put("chargingCandidate", safeFields(charging, CHARGING_KEYS))
             .put("nativeStreamCandidate", safeFields(nativeStream, STREAM_KEYS))
+            .put("motionCandidate", safeFields(motion, MOTION_KEYS))
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "byd-diagnostics-${System.currentTimeMillis()}.json")
