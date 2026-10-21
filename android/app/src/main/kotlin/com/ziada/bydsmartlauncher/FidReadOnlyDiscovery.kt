@@ -16,13 +16,17 @@ internal object FidReadOnlyDiscovery {
         "BYDAutoConstants.BYDAUTO_DEVICE_STATISTIC",
         "BYDAutoConstants.BYDAUTO_DEVICE_LIGHT",
         "BYDAutoConstants.BYDAUTO_DEVICE_CHARGING",
+        "BYDAutoConstants.BYDAUTO_DEVICE_SPEED",
+        "BYDAutoConstants.BYDAUTO_DEVICE_GEARBOX",
         "Statistic.STATISTIC_ELEC_PERCENTAGE",
         "Statistic.STATISTIC_TOTAL_MILEAGE",
         "Statistic.STATISTIC_TOTAL_ELEC_CONSUMPTION",
         "Light.LIGHT_TURN_SIGNAL_LIGHT",
         "Charging.CHARGING_GUN_CONNECT_STATE",
         "Charging.CHARGING_BATTERRY_DEVICE_STATE",
-        "Charging.CHARGING_TYPE"
+        "Charging.CHARGING_TYPE",
+        "Speed.SPEED_AUTO_SPEED",
+        "Gearbox.GEARBOX_AUTO_MODE_TYPE"
     )
     private val oneLine = Regex("""^([A-Za-z][A-Za-z0-9_.]*)=(-?[0-9]{1,11})$""")
 
@@ -44,6 +48,12 @@ internal object FidReadOnlyDiscovery {
             catalog.fidOf("Statistic.STATISTIC_ELEC_PERCENTAGE") != null &&
             catalog.fidOf("Statistic.STATISTIC_TOTAL_MILEAGE") != null
 
+        val readyForMotionCandidateProbes: Boolean get() =
+            catalog.deviceOf("SPEED") != null &&
+            catalog.deviceOf("GEARBOX") != null &&
+            catalog.fidOf("Speed.SPEED_AUTO_SPEED") != null &&
+            catalog.fidOf("Gearbox.GEARBOX_AUTO_MODE_TYPE") != null
+
         val readyForChargingCandidateProbes: Boolean get() =
             catalog.deviceOf("CHARGING") != null &&
             catalog.fidOf("Charging.CHARGING_GUN_CONNECT_STATE") != null &&
@@ -61,6 +71,10 @@ internal object FidReadOnlyDiscovery {
             "energyFidCandidate" to catalog.fidOf("Statistic.STATISTIC_TOTAL_ELEC_CONSUMPTION"),
             "lightDeviceCandidate" to catalog.deviceOf("LIGHT"),
             "chargingDeviceCandidate" to catalog.deviceOf("CHARGING"),
+            "speedDeviceCandidate" to catalog.deviceOf("SPEED"),
+            "gearboxDeviceCandidate" to catalog.deviceOf("GEARBOX"),
+            "speedFidCandidate" to catalog.fidOf("Speed.SPEED_AUTO_SPEED"),
+            "gearFidCandidate" to catalog.fidOf("Gearbox.GEARBOX_AUTO_MODE_TYPE"),
             "gunFidCandidate" to catalog.fidOf("Charging.CHARGING_GUN_CONNECT_STATE"),
             "bmsFidCandidate" to catalog.fidOf("Charging.CHARGING_BATTERRY_DEVICE_STATE"),
             "chargeTypeFidCandidate" to catalog.fidOf("Charging.CHARGING_TYPE"),
