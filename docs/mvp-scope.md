@@ -1,28 +1,42 @@
-# MVP implementation contract — user-visible functional slices
+# MVP / release scope — revised to match owner's 2026-10-21 priorities
 
-**Target:** imported BYD Song Plus Flagship 2025, DiLink 5.0, Android 12 / SDK 32. A *companion launcher interface* in one APK; do NOT replace BYD OEM HOME while factory camera precedence is unverified.
+**Vehicle:** BYD Song Plus Flagship SmartDrive 2025 / DiLink 5.0 OS 2602 / Android 12 SDK 32. **One APK**, landscape-first; OEM home, reverse and 360 cameras must remain available.
 
-## Current acceptance evidence
+**The v0.2.0+3 build is a Technical Preview, not a finished functional MVP.** A dashboard showing candidate SOC and odometer is useful, but not sufficient to meet the feature brief. CI success proves the APK builds; owner-verified firmware behavior is a separate acceptance gate.
 
-- Owner verified an SOC candidate at **35%** and again at **100%** during a DC charging session against the BYD OEM display.
-- Owner also verified a parked odometer value near 41,936 km. Dynamic firmware reflection returned the exact same SOC and mileage FIDs as the fallback reads, and raw odometer scale suggested 0.1 km per tick.
-- New owner JSON schema-3 export (2026-10-19 16:26:54 UTC): ADB connected; candidate **SOC 89% / odometer 42,010.6 km**; firmware discovery reading **91% / raw odometer 420,031**, sampled at separate times. Do NOT compare as simultaneous measurements; the diagnostic export stores each section's last sample. Energy counter **7145.9** remains semantically unverified. The owner has not independently confirmed these newest figures against OEM. The two sections were sampled at different times and should not be compared as simultaneous measurements.
-- Charging candidate: gun raw **1** maps to "none" according to BYDMate hypotheses; BMS raw **15** is not documented in our limited classifier. **Classify charging as unknown**, not completed. No completion alert or charger operation.
-- `transport.vehicleTelemetry=not_implemented`, `helper=not_installed` and `writeEnabled=false`. ADB transport is not the same as a verified continuous CAN/BMS stream.
+## Strict owner-ordered roadmap
 
-## v0.2.0+3 — smallest useful dashboard preview (this PR)
+| Priority | Deliverable | Status as of plan revision | Must be proven on vehicle |
+| --- | --- | --- | --- |
+| 1 | Recheck **all relevant** references/SDKs/APIs/ADB commands in BYDMate and Kinex | **In progress**: source inventory opened; binary/interface, write semantics and version-diff audit pending | Evidence-backed per-operation capability mapping for OS 2602; unsupported APIs documented, no guessed Kinex internals |
+| 2 | **Live telemetry** | **Not implemented**: read-only candidate sampling and manual FID probes only | Stable validated timestamped native stream, stale/reconnect/reboot handling, OEM comparison |
+| 3 | **Vehicle control** | **Not implemented**: settings/controls page only | Individually approved comfort writes after verified parked P2 inputs, per-command readback; otherwise explicit unavailable status |
+| 4 | **Real range** | **Candidate math only**: no validated energy source/trip history | Validated BMS energy + driving-only consumption and persisted trip window |
+| 5 | **Blind spot** | **Decision tests only**: no camera integration | Camera feed follows turn signal, factory AVM always takes precedence |
+| 6 | **Telegram** | **TEST send works**; automated reporting not implemented | Verified telemetry status and durable, deduplicated approved event alerts |
 
-- **On Status**, show candidate battery SOC (%) and odometer (km) in large tiles; do not pretend Real Range is available. Demo mode must remain visibly synthetic.
-- Add explicit **Start read-only dashboard**, **Stop updates**, **Read once**, and manual **Charging diagnostic once** actions. After user permission / successful ADB pairing, sample **only the fixed read-only SOC and odometer FIDs** (no energy dependency) every **15 seconds** *while the Flutter UI is foregrounded*. No default-on polling.
-- Stop timer on Stop, app pause, demo-mode change or ADB disconnect. Stop after invalid/missing readings; clear candidate figures rather than retaining them as current. Last sample time and stopped status shown. No operating-system service or wake lock.
-- Preserve source uncertainty: measured numbers on screen are **candidate diagnostics**, never `VehicleSnapshot.connected=true` or a permission gate for automated events. Background notifications, actual camera overlays, power/charge write commands stay off.
-- CI acceptance: Flutter analyze and tests, Android unit tests, APK debug build and signature/package/SHA checks; deterministic widget tests confirm opt-in, 15-second polling, no polling after Stop and after lifecycle pause. APK name includes version/build/commit. On-car validation still required before making a verified-live claim.
+**Automations** are **deferred** and not counted among the six active priorities. Their existing editor and tests remain, but no independent automation phase may displace these priorities.
 
-## Next bounded MVP slices (separately gated)
+## Previously established evidence (not promotion to full compatibility)
+- Owner confirmed BYD dashboard and fallback SOC matched at 35% and 100%; OEM-confirmed odometer ~41,936 km in a parked sample.
+- On 2026-10-21 schema-3 export, ADB connected; 75% SOC and 42,069.9 km candidate odometer, firmware reflection symbol discovery, but `helper=not_installed` and `vehicleTelemetry=not_implemented`. The newest odometer figure has not yet been independently confirmed against the OEM cluster in that same sample.
+- Charging gun raw 1 and BMS raw 15: charging state **unknown**, not finished; actual charge-completion alerts may not be inferred.
+- The cumulative energy counter's units/meaning remain unverified. A raw FID discovered in BYDMate is not proof of a Song Plus vehicle-control write permission.
 
-1. **Reliable verified read-only stream:** auto-reconnect behavior, bounded stale data, empirically validated ADB/helper longevity and at least two OEM confirmation checks after a real distance change; no safety-dependent actuation.
-2. **Real range:** identify physical meaning of cumulative energy counter on the user's specific firmware or use a BMS-confirmed consumption source; reject charging intervals, counter resets and implausible values before showing an estimated range.
-3. **Telegram utility:** first manual send of fresh *labelled candidate* status with explicit user tap and encrypted local token. Next, audited/persisted notification-only triggers with independently verified ignition/charging signals and deduplication; no messages from unverified BMS code 15.
-4. **Blind spot integration:** only after OEM camera priority and side-indicator FIDs are validated; manual parked checks first. Vehicle controls come much later after separate firmware-specific parked/readback authorization.
+## Gate definitions
+- `documented_in_parent`: API appears in parent code or README.
+- `seen_in_binary`: the user-supplied APK manifest/class metadata references a feature, not proof it works.
+- `implemented_in_our_source`: code exists.
+- `ci_tested`: source compiles and deterministic mock/unit tests pass.
+- `on_car_read_verified`: matched against BYD OEM measurements on the target OS.
+- `on_car_write_verified`: only after explicit owner approval, verified parked safety and independently observed readback.
+- `blocked_unknown`: no safe verified access. **Do not expose it as usable.**
 
-**MVP definition:** A visible, useful, read-only vehicle dashboard is a valid first functional preview. **Full original feature-set parity is NOT the MVP** and is not complete at this stage.
+## Release / acceptance
+1. **P1 research milestone**: publish exact source- and commit-grounded BYDMate/Kinex SDK & ADB/API inventory; [P1 audit](parent-project-api-adb-audit.md) stays open until confirmed.
+2. **P2 telemetry milestone**: no production write path. After stable stream passes CI and owner test, start P3 vehicle controls.
+3. **P3 controls milestone**: a preview of control buttons is not a working feature. Accept only safe, explicitly approved, target-firmware-verified actions with readback and rollback.
+4. **P4–P6 feature milestones**: range, blind spot and Telegram independently meet their on-car and safety gates.
+5. **Functional MVP completed** only when the six prioritized deliverables are addressed with evidence or their blocking limitations have been explicitly accepted by the owner. Don't rename a partial Diagnostic APK as a completed product.
+
+Follow [implementation plan](implementation-plan.md), [parent audit](parent-project-api-adb-audit.md), [phase evidence](phase-evidence.md) and [umbrella tracking issue #12](https://github.com/engziada/BYD-Smart-Launcher/issues/12).
