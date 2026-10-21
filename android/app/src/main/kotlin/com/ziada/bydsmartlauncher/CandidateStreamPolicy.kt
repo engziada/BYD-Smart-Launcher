@@ -40,8 +40,8 @@ internal class CandidateStreamPolicy(
             val stopped = failures >= maxConsecutiveFailures
             return mapOf(
                 "streamState" to if (stopped) "stopped" else "stale",
-                "reason" to (raw["reason"] as? String)?.takeIf { it.length <= 60 }
-                    ?: "invalid_or_stale_candidate",
+                "reason" to ((raw["reason"] as? String)?.takeIf { it.length <= 60 }
+                    ?: "invalid_or_stale_candidate"),
                 "failureStreak" to failures,
                 "sequence" to sequence,
                 "firmwareVerified" to false,
