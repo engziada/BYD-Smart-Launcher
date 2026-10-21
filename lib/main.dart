@@ -98,7 +98,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   final _batteryCapacity = TextEditingController();
   bool _rangeBusy = false;
   Map<Object?, Object?> _rangeCandidate = {};
-  Timer? _dashboardTimer;
+  StreamSubscription<Map<Object?, Object?>>? _nativeStreamSubscription;
   int _dashboardSession = 0;
   bool _dashboardEnabled = false;
   bool _dashboardStarting = false;
@@ -162,17 +162,20 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   }
 
 
-  /// Diagnostic-only foreground polling. Read-only autoservice GET calls run
-  /// every 15 seconds after an explicit user action; no app-wide/background
-  /// service, vehicle writes, or verified-telemetry promotion is involved.
-  void _stopDashboard({String reason = 'Updates stopped. Last reading may be stale.'}) {
+  /// Only an explicit operator action can start firmware-derived GET sampling.
+  /// Android owns the five-second clock and stops on app background or missing
+  /// native listener. This Flutter view never authorizes any vehicle writes.
+  void _stopDashboard({String reason = 'Native stream stopped. Readings cleared.'}) {
     _dashboardSession++;
-    _dashboardTimer?.cancel();
-    _dashboardTimer = null;
+    _nativeStreamSubscription?.cancel();
+    _nativeStreamSubscription = null;
+    unawaited(_gateway.stopNativeCandidateStream());
     if (mounted) {
       setState(() {
         _dashboardEnabled = false;
         _dashboardStarting = false;
+        _rangeCandidate = {};
+        _dashboardSampledAt = null;
         _dashboardNotice = reason;
       });
     }
@@ -182,91 +185,131 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed &&
         (_dashboardEnabled || _dashboardStarting)) {
-      _stopDashboard(reason:
-          'Updates paused when the app left the foreground. Tap Start to resume.');
+      _stopDashboard(
+          reason: 'Stream stopped in background. Tap Start to reconnect.');
+    }
+  }
+
+  void _handleNativeCandidate(int session, Map<Object?, Object?> event) {
+    if (!mounted || _demo || session != _dashboardSession ||
+        !_dashboardEnabled) {
+      return;
+    }
+    final status = event['streamState'];
+    if (status == 'initializing' || status == 'idle') {
+      setState(() => _dashboardNotice = 'Resolving firmware FIDs (GET only)…');
+      return;
+    }
+    if (status == 'candidate') {
+      final soc = event['socCandidatePercent'];
+      final mileage = event['odometerCandidateKm'];
+      final sampleEpoch = event['capturedAtEpochMs'];
+      if (soc is! num || mileage is! num || sampleEpoch is! num ||
+          !soc.toDouble().isFinite || soc < 0 || soc > 100 ||
+          !mileage.toDouble().isFinite || mileage < 0 ||
+          event['firmwareVerified'] != false ||
+          event['vehicleWriteAuthorized'] != false) {
+        _stopDashboard(reason: 'Invalid candidate event; stream disabled.');
+        return;
+      }
+      final readAt = DateTime.fromMillisecondsSinceEpoch(sampleEpoch.toInt());
+      if (DateTime.now().difference(readAt).inSeconds.abs() > 15) {
+        _stopDashboard(reason: 'Stale event; stream disabled.');
+        return;
+      }
+      setState(() {
+        _rangeCandidate = event;
+        _dashboardSampledAt = readAt;
+        _dashboardNotice = 'Native read-only stream • 5s updates • '
+            'FIDs matched to owner diagnostic only. NOT verified live telemetry.';
+      });
+      return;
+    }
+    if (status == 'stale') {
+      setState(() {
+        _rangeCandidate = {};
+        _dashboardSampledAt = null;
+        _dashboardNotice = 'Stale candidate stream: '
+            '${event['reason'] ?? 'read_failed'}. No values shown.';
+      });
+      return;
+    }
+    if (status == 'stopped') {
+      _stopDashboard(
+          reason: 'Native stream stopped: ${event['reason'] ?? 'unknown'}. '
+              'No automatic retry or vehicle commands.');
     }
   }
 
   Future<void> _startDashboard() async {
-    if (_demo || _dashboardEnabled || _dashboardStarting || _adbBusy) return;
+    if (_demo || _dashboardEnabled || _dashboardStarting || _adbBusy) {
+      return;
+    }
     final session = ++_dashboardSession;
     setState(() {
       _dashboardStarting = true;
-      _dashboardNotice = 'Connecting ADB (approve on DiLink if prompted)…';
       _rangeCandidate = {};
       _dashboardSampledAt = null;
+      _dashboardNotice = 'Connecting ADB (approve on DiLink if prompted)…';
     });
+
     try {
       final connection = await _gateway.connectAdb();
-      if (!mounted || session != _dashboardSession || _demo) return;
+      if (!mounted || _demo || session != _dashboardSession) {
+        return;
+      }
       if (connection['adb'] != 'connected') {
         setState(() => _dashboardNotice =
             'ADB unavailable: ${connection['adbFailure'] ?? connection['error'] ?? connection['adb'] ?? 'unknown'}.');
         return;
       }
-      final snap = await _gateway.getSnapshot();
-      if (!mounted || session != _dashboardSession || _demo) return;
-      setState(() {
-        _snapshot = snap;
-        _dashboardEnabled = true;
-        _dashboardNotice = 'Reading diagnostics…';
-      });
-      await _pollDashboard(session);
-      if (!mounted || session != _dashboardSession || !_dashboardEnabled) {
+
+      _nativeStreamSubscription = _gateway.candidateStream.listen(
+        (event) => _handleNativeCandidate(session, event),
+        onError: (Object _) {
+          if (mounted && session == _dashboardSession) {
+            _stopDashboard(reason: 'Native stream transport unavailable.');
+          }
+        },
+        onDone: () {
+          if (mounted && session == _dashboardSession) {
+            _stopDashboard(reason: 'Native event stream ended.');
+          }
+        },
+      );
+      if (!mounted || session != _dashboardSession) {
         return;
       }
-      _dashboardTimer = Timer.periodic(
-        const Duration(seconds: 15), (_) => _pollDashboard(session));
+      setState(() {
+        _dashboardEnabled = true;
+        _dashboardNotice = 'Waiting for native firmware lookup…';
+      });
+
+      // EventChannel "listen" messages are asynchronous. A bounded retry
+      // handles the case where the native listener attaches just after start.
+      var start = await _gateway.startNativeCandidateStream();
+      if (start['reason'] == 'no_active_stream_listener') {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        if (!mounted || session != _dashboardSession) {
+          return;
+        }
+        start = await _gateway.startNativeCandidateStream();
+      }
+      if (!mounted || session != _dashboardSession) {
+        return;
+      }
+      if (start['ok'] != true) {
+        _stopDashboard(
+            reason: 'Native stream unavailable: '
+                '${start['reason'] ?? start['error'] ?? 'unknown'}');
+      }
     } catch (_) {
       if (mounted && session == _dashboardSession) {
-        _stopDashboard(reason: 'Unable to connect the diagnostic dashboard.');
+        _stopDashboard(reason: 'Unable to start the native read-only stream.');
       }
     } finally {
       if (mounted && session == _dashboardSession) {
         setState(() => _dashboardStarting = false);
-      }
-    }
-  }
-
-  Future<void> _pollDashboard(int session) async {
-    if (!mounted || !_dashboardEnabled || _demo ||
-        session != _dashboardSession || _rangeBusy || _adbBusy) {
-      return;
-    }
-    setState(() => _rangeBusy = true);
-    try {
-      final result = await _gateway.sampleDashboardCandidates();
-      if (!mounted || session != _dashboardSession || !_dashboardEnabled) return;
-      final soc = result['socCandidatePercent'];
-      final odo = result['odometerCandidateKm'];
-      if (result['ok'] != true ||
-          soc is! num || odo is! num || !soc.toDouble().isFinite ||
-          !odo.toDouble().isFinite || soc < 0 || soc > 100 || odo < 0) {
-        _stopDashboard(reason: 'Invalid/missing diagnostic values. '
-            'Polling stopped; reconnect when parked.');
-        setState(() {
-          _rangeCandidate = {};
-          _dashboardSampledAt = null;
-        });
-        return;
-      }
-      setState(() {
-        _rangeCandidate = result;
-        _dashboardSampledAt = DateTime.now();
-        _dashboardNotice = 'Read-only samples update every 15 seconds. '
-            'Values are candidates, not approved for car controls.';
-      });
-    } catch (_) {
-      if (mounted && session == _dashboardSession) {
-        _stopDashboard(reason: 'Read failed. Polling stopped safely.');
-        setState(() {
-          _rangeCandidate = {};
-          _dashboardSampledAt = null;
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _rangeBusy = false);
       }
     }
   }
@@ -443,7 +486,6 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   /// Explicit one-shot dashboard read without an energy-counter dependency.
   Future<void> _sampleDashboardOnce() async {
     if (_dashboardEnabled) {
-      await _pollDashboard(_dashboardSession);
       return;
     }
     if (_rangeBusy || _demo || _dashboardStarting) {
@@ -480,7 +522,6 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
 
   Future<void> _sampleTelemetry() async {
     if (_dashboardEnabled) {
-      await _pollDashboard(_dashboardSession);
       return;
     }
     if (_rangeBusy || _demo) return;
@@ -573,7 +614,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _dashboardSession++;
-    _dashboardTimer?.cancel();
+    _nativeStreamSubscription?.cancel();
+    unawaited(_gateway.stopNativeCandidateStream());
     _lightMode.removeListener(_refreshThemeColors);
     _tgToken.dispose();
     _tgChat.dispose();
@@ -656,12 +698,12 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 socCandidate >= 0 && socCandidate <= 100
             ? socCandidate.toDouble() / 100.0
             : null;
-        return _section('Vehicle dashboard — MVP preview',
-            'Operator-enabled read-only ADB diagnostics, not OEM-certified live telemetry', [
-          _info(_demo ? 'DEMO — synthetic readings' : 'Read-only vehicle dashboard',
+        return _section('Native telemetry — P2 technical preview',
+            'Firmware-gated 5-second stream • SOC/mileage candidates • not OEM-certified', [
+          _info(_demo ? 'DEMO — synthetic readings' : 'Native read-only candidate telemetry',
               _demo
                   ? 'No car connection, updates, or commands in demo mode.'
-                  : 'Your Song Plus SOC and odometer are shown as candidates. '
+                  : 'SOC/odometer use the firmware-discovered FIDs; stream stops on stale data. '
                     'No vehicle writes, camera access, or automatic Telegram dispatch.',
               Icons.dashboard_outlined),
           Row(children: [
@@ -684,9 +726,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           if (!_demo)
             Text(_dashboardNotice),
           if (!_demo && _dashboardSampledAt != null)
-            Text('Last diagnostic sample: '
+            Text('Last native sample: '
                  '${TimeOfDay.fromDateTime(_dashboardSampledAt!).format(context)} '
-                 '• ${_dashboardEnabled ? 'foreground refresh ON' : 'updates STOPPED'}'),
+                 '• ${_dashboardEnabled ? 'native read-only stream ON' : 'updates STOPPED'}'),
           if (!_demo)
             Wrap(spacing: 12, runSpacing: 8, children: [
               FilledButton.icon(
@@ -698,10 +740,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                     : Icons.play_circle_outline),
                 label: Text(_dashboardStarting ? 'Connecting…'
                     : _dashboardEnabled ? 'Stop updates'
-                    : 'Start read-only dashboard'),
+                    : 'Start native read-only stream'),
               ),
               OutlinedButton.icon(
-                onPressed: _rangeBusy || _dashboardStarting
+                onPressed: _rangeBusy || _dashboardStarting || _dashboardEnabled
                     ? null : _sampleDashboardOnce,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Read once'),
