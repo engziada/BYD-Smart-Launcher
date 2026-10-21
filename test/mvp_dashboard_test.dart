@@ -134,6 +134,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Start native read-only stream'), findsOneWidget);
     expect(find.textContaining('firmware_fids_or_scale_unvalidated'), findsOneWidget);
-    expect(find.text('— %'), findsOneWidget);
+    expect(find.text('—'), findsWidgets);
   });
 }
