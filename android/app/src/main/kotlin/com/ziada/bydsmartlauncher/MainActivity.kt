@@ -64,7 +64,8 @@ class MainActivity : FlutterActivity() {
                             val response = try {
                                 DiagnosticReportWriter(applicationContext).save(
                                     adb.diagnostics(), lastFirmwareProbe, lastTelemetrySample,
-                                    lastFidDiscovery, lastChargingSample
+                                    lastFidDiscovery, lastChargingSample,
+                                    candidateStream.currentStatus()
                                 )
                             } catch (_: Exception) {
                                 mapOf("ok" to false, "error" to "export_failed")
