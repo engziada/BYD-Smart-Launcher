@@ -95,7 +95,6 @@ internal class NativeReadOnlyStream(
             main.post {
                 if (token != generation || !running || sink == null) return@post
                 val verdict = policy.inspect(raw, System.currentTimeMillis())
-                publish(verdict)
                 if (verdict["streamState"] == "candidate") {
                     lastAcceptedAtEpochMs =
                         (verdict["capturedAtEpochMs"] as? Number)?.toLong()
@@ -106,7 +105,11 @@ internal class NativeReadOnlyStream(
                 if (verdict["streamState"] == "stopped") {
                     running = false
                     adb.stopNativeCandidateStream()
+                    publish(stoppedStatus(
+                        verdict["reason"] as? String ?: "candidate_stream_rejected"
+                    ))
                 } else {
+                    publish(verdict)
                     val next = Runnable { sample(token) }
                     pending = next
                     main.postDelayed(next, SAMPLE_INTERVAL_MS)
