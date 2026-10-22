@@ -114,6 +114,66 @@ void main() {
     expect(calls.where((m) => m == 'nativeCandidateStreamStart').length, 1);
   });
 
+  testWidgets('reusing ADB keeps a manual motion observation in the UI',
+      (tester) async {
+    setupSize(tester);
+    final calls = <String>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(events, (call) async => null);
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      if (call.method == 'adbConnect') {
+        return <String, Object?>{'adb': 'connected', 'sessionReused': true};
+      }
+      if (call.method == 'motionProbe') {
+        return <String, Object?>{
+          'ok': true,
+          'speedRawFloatCandidate': 0.0,
+          'gearRawIntCandidate': 1,
+          'stationaryStateVerified': false,
+          'vehicleWriteAuthorized': false,
+        };
+      }
+      if (call.method == 'adbDisconnect') {
+        return <String, Object?>{'adb': 'not_connected'};
+      }
+      return <String, Object?>{};
+    });
+
+    await tester.pumpWidget(const LauncherApp());
+    await tester.pump();
+    await tester.tap(find.text('Settings'));
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.text('Probe raw speed & gear (GET-only)'),
+      250, scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Probe raw speed & gear (GET-only)'));
+    await tester.pump();
+    await tester.pump();
+    expect(calls, contains('motionProbe'));
+
+    await tester.scrollUntilVisible(
+      find.text('Connect ADB'), -250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Connect ADB'));
+    await tester.pump();
+    await tester.pump();
+    expect(calls, contains('adbConnect'));
+    expect(calls, isNot(contains('nativeCandidateStreamStop')));
+
+    // A reused ADB session is not a new vehicle session; manual observations
+    // must not be silently wiped from Status or the diagnostic screen.
+    await tester.scrollUntilVisible(
+      find.text('Motion firmware diagnostic — RAW ONLY'), -250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Motion firmware diagnostic — RAW ONLY'), findsOneWidget);
+    expect(find.textContaining('Gear: 1 (enum unknown)'), findsOneWidget);
+  });
+
   testWidgets('unavailable native stream never displays guessed telemetry',
       (tester) async {
     setupSize(tester);
