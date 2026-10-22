@@ -21,7 +21,7 @@ class MainActivity : FlutterActivity() {
     private val ruleStore by lazy { LocalAutomationRepository(applicationContext) }
     private val candidateStream by lazy {
         NativeReadOnlyStream(adb, worker, mainHandler) { sample ->
-            lastTelemetrySample = sample
+            lastTelemetrySample = sample + mapOf("sessionValid" to true)
         }
     }
     private val methods = "com.ziada.byd_smart_launcher/vehicle"
@@ -123,28 +123,51 @@ class MainActivity : FlutterActivity() {
                     "adbConnect", "adbDisconnect", "adbProbe", "adbProbeSoc",
                     "adbProbeFirmware", "telemetrySample", "dashboardSample", "adbProbeFids",
                     "chargingSample", "motionProbe" -> {
-                        if (call.method == "adbDisconnect" || call.method == "adbConnect") {
+                        if (AdbSessionChangePolicy.shouldStopStream(
+                                call.method, adb.hasConnectedSession()
+                            )) {
                             candidateStream.stop("adb_session_changed")
                         }
                         worker.execute {
                             val response = when (call.method) {
                                 "adbConnect" -> {
-                                    lastChargingSample = emptyMap()
-                                    lastMotionSample = emptyMap()
-                                    adb.connect()
+                                    val reused = adb.hasConnectedSession()
+                                    if (!reused) {
+                                        // Keep the historical observations for export, but
+                                        // explicitly invalidate them across actual sessions.
+                                        lastChargingSample = lastChargingSample +
+                                            mapOf("sessionValid" to false)
+                                        lastMotionSample = lastMotionSample +
+                                            mapOf("sessionValid" to false)
+                                        lastTelemetrySample = lastTelemetrySample +
+                                            mapOf("sessionValid" to false)
+                                    }
+                                    adb.connect() + mapOf("sessionReused" to reused)
                                 }
                                 "adbDisconnect" -> {
-                                    lastChargingSample = emptyMap()
-                                    lastMotionSample = emptyMap()
+                                    lastChargingSample = lastChargingSample +
+                                        mapOf("sessionValid" to false)
+                                    lastMotionSample = lastMotionSample +
+                                        mapOf("sessionValid" to false)
+                                    lastTelemetrySample = lastTelemetrySample +
+                                        mapOf("sessionValid" to false)
                                     adb.disconnect()
                                 }
                                 "adbProbeSoc" -> adb.probeSoc()
                                 "adbProbeFirmware" -> adb.probeFirmware().also { lastFirmwareProbe = it }
                                 "adbProbeFids" -> adb.discoverFidCatalog().also { lastFidDiscovery = it }
-                                "chargingSample" -> adb.sampleChargingCandidates().also { lastChargingSample = it }
-                                "motionProbe" -> adb.probeMotionCandidates().also { lastMotionSample = it }
-                                "telemetrySample" -> adb.sampleTelemetry().also { lastTelemetrySample = it }
-                                "dashboardSample" -> adb.sampleDashboardCandidates().also { lastTelemetrySample = it }
+                                "chargingSample" -> adb.sampleChargingCandidates().also {
+                                    lastChargingSample = it + mapOf("sessionValid" to true)
+                                }
+                                "motionProbe" -> adb.probeMotionCandidates().also {
+                                    lastMotionSample = it + mapOf("sessionValid" to true)
+                                }
+                                "telemetrySample" -> adb.sampleTelemetry().also {
+                                    lastTelemetrySample = it + mapOf("sessionValid" to true)
+                                }
+                                "dashboardSample" -> adb.sampleDashboardCandidates().also {
+                                    lastTelemetrySample = it + mapOf("sessionValid" to true)
+                                }
                                 else -> adb.probe()
                             }
                             mainHandler.post { result.success(response) }
