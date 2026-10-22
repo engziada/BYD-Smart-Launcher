@@ -37,24 +37,26 @@ internal class DiagnosticReportWriter(private val context: Context) {
             "ok", "status", "speedRawFloatCandidate", "gearRawIntCandidate",
             "speedUnitsVerified", "gearEnumVerified", "stationaryStateVerified",
             "capturedAtEpochMs", "firmwareVerified", "vehicleWriteAuthorized",
-            "automaticEventEligible", "source"
+            "automaticEventEligible", "source", "sessionValid"
         )
         private val CHARGING_KEYS = setOf(
             "ok", "status", "capturedAtEpochMs", "catalogResolved", "gunStateRaw", "gunKindCandidate",
             "bmsStateRaw", "bmsPhaseCandidate", "chargingTypeRaw",
             "chargeStateCandidate", "source", "firmwareVerified",
-            "completionConfirmed", "automaticEventEligible", "vehicleWriteAuthorized"
+            "completionConfirmed", "automaticEventEligible", "vehicleWriteAuthorized",
+            "sessionValid"
         )
         private val STREAM_KEYS = setOf(
             "streamState", "reason", "sequence", "failureStreak",
             "catalogMatched", "firmwareVerified", "vehicleWriteAuthorized",
-            "automaticEventEligible"
+            "automaticEventEligible", "lastAcceptedAtEpochMs",
+            "lastAcceptedSequence", "stoppedAtEpochMs"
         )
         private val TELEMETRY_KEYS = setOf(
             "ok", "socCandidatePercent", "energyCandidateKwh", "odometerCandidateKm",
             "capturedAtEpochMs", "vehicleWriteAuthorized",
             "streamState", "sequence", "catalogMatched", "automaticEventEligible",
-            "odometerScaleCandidate",
+            "odometerScaleCandidate", "sessionValid",
             "sampleCount", "windowDistanceKm", "firmwareVerified",
             "odometerScaleAssumption", "source", "reason"
         )
@@ -90,7 +92,7 @@ internal class DiagnosticReportWriter(private val context: Context) {
             return mapOf("ok" to false, "error" to "android_10_required")
         }
         val document = JSONObject()
-            .put("schema", 5)
+            .put("schema", 6)
             .put("exportedAtUtc", Instant.now().toString())
             .put("verification", "READ_ONLY_UNVERIFIED_NO_VEHICLE_WRITES")
             .put("transport", safeFields(transport, TRANSPORT_KEYS))
