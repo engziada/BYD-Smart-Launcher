@@ -141,7 +141,10 @@ internal class NativeReadOnlyStream(
             running, current["streamState"] as? String,
             current["reason"] as? String, reason
         )
-        if (!running && current["streamState"] == "stopped") {
+        if (!running && current["streamState"] in setOf("idle", "stopped")) {
+            // Connecting ADB before a stream ever started is NOT a stream
+            // termination. Keep "idle" so the next EventChannel listener can
+            // start successfully instead of receiving a stale "stopped" event.
             return current + mapOf("ok" to true)
         }
         ++generation
