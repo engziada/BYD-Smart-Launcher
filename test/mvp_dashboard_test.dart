@@ -117,6 +117,9 @@ void main() {
   testWidgets('reusing ADB keeps a manual motion observation in the UI',
       (tester) async {
     setupSize(tester);
+    // This test verifies session-state retention, not viewport scrolling.
+    // Give Settings' diagnostic buttons a real unobscured target.
+    tester.view.physicalSize = const Size(2400, 1800);
     final calls = <String>[];
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -145,19 +148,15 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Settings'));
     await tester.pump();
-    await tester.scrollUntilVisible(
-      find.text('Probe raw speed & gear (GET-only)'),
-      250, scrollable: find.byType(Scrollable).first,
-    );
+    await tester.ensureVisible(find.text('Probe raw speed & gear (GET-only)'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Probe raw speed & gear (GET-only)'));
     await tester.pump();
     await tester.pump();
     expect(calls, contains('motionProbe'));
 
-    await tester.scrollUntilVisible(
-      find.text('Connect ADB'), -250,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.ensureVisible(find.text('Connect ADB'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Connect ADB'));
     await tester.pump();
     await tester.pump();
@@ -166,10 +165,8 @@ void main() {
 
     // A reused ADB session is not a new vehicle session; manual observations
     // must not be silently wiped from Status or the diagnostic screen.
-    await tester.scrollUntilVisible(
-      find.text('Motion firmware diagnostic — RAW ONLY'), -250,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.ensureVisible(find.text('Motion firmware diagnostic — RAW ONLY'));
+    await tester.pumpAndSettle();
     expect(find.text('Motion firmware diagnostic — RAW ONLY'), findsOneWidget);
     expect(find.textContaining('Gear: 1 (enum unknown)'), findsOneWidget);
   });
