@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'core/adb_observation_scope.dart';
 import 'core/vehicle_gateway.dart';
 import 'core/vehicle_snapshot.dart';
 
@@ -385,8 +386,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             _chargingCandidate = response;
           } else if (action == 'motion') {
             _motionCandidate = response;
-          } else if (action == 'disconnect' ||
-              (action == 'connect' && response['sessionReused'] != true)) {
+          } else if (shouldClearAdbObservations(action, response)) {
             _chargingCandidate = {};
             _motionCandidate = {};
             _rangeCandidate = {};
