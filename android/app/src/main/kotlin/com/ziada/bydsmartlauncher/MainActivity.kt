@@ -33,6 +33,10 @@ class MainActivity : FlutterActivity() {
     @Volatile private var lastChargingSample: Map<String, Any?> = emptyMap()
     @Volatile private var lastMotionSample: Map<String, Any?> = emptyMap()
 
+    /** Invalidate only EXISTING prior observations, not an empty report section. */
+    private fun historical(sample: Map<String, Any?>): Map<String, Any?> =
+        if (sample.isEmpty()) sample else sample + mapOf("sessionValid" to false)
+
     private fun snapshot(): Map<String, Any?> = mapOf(
         "connected" to false, // ADB != verified live BYD car telemetry
         "adbState" to adb.transportState,
@@ -135,22 +139,16 @@ class MainActivity : FlutterActivity() {
                                     if (!reused) {
                                         // Keep the historical observations for export, but
                                         // explicitly invalidate them across actual sessions.
-                                        lastChargingSample = lastChargingSample +
-                                            mapOf("sessionValid" to false)
-                                        lastMotionSample = lastMotionSample +
-                                            mapOf("sessionValid" to false)
-                                        lastTelemetrySample = lastTelemetrySample +
-                                            mapOf("sessionValid" to false)
+                                        lastChargingSample = historical(lastChargingSample)
+                                        lastMotionSample = historical(lastMotionSample)
+                                        lastTelemetrySample = historical(lastTelemetrySample)
                                     }
                                     adb.connect() + mapOf("sessionReused" to reused)
                                 }
                                 "adbDisconnect" -> {
-                                    lastChargingSample = lastChargingSample +
-                                        mapOf("sessionValid" to false)
-                                    lastMotionSample = lastMotionSample +
-                                        mapOf("sessionValid" to false)
-                                    lastTelemetrySample = lastTelemetrySample +
-                                        mapOf("sessionValid" to false)
+                                    lastChargingSample = historical(lastChargingSample)
+                                    lastMotionSample = historical(lastMotionSample)
+                                    lastTelemetrySample = historical(lastTelemetrySample)
                                     adb.disconnect()
                                 }
                                 "adbProbeSoc" -> adb.probeSoc()
