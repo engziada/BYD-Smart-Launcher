@@ -17,7 +17,10 @@ internal class SafeAdbTransport(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences("range_preferences", Context.MODE_PRIVATE)
     private val consumption = ConsumptionWindow()
 
-    private var client: AdbProtocolClient? = null
+    @Volatile private var client: AdbProtocolClient? = null
+    /** A transport-level check only. Does NOT confirm vehicle telemetry or writes. */
+    fun hasConnectedSession(): Boolean =
+        state == "connected" && client?.isConnected() == true
     /** In-memory only. Never persisted as a write capability or reused across reconnects. */
     @Volatile private var nativeStreamCatalog: StreamCatalog? = null
     private data class StreamCatalog(val device: Int, val socFid: Int, val odometerFid: Int)
