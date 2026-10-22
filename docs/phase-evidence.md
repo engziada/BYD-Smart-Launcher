@@ -66,3 +66,10 @@
 - Dynamic allowlisted reflection extended with `Speed.SPEED_AUTO_SPEED`, `Gearbox.GEARBOX_AUTO_MODE_TYPE`, SPEED and GEARBOX device constants. Operator-triggered on-car *raw* GET-only samples (speed float transaction 7, gear int transaction 5); strict DiLink identity / observed SOC FIDs and device groups guard.
 - JSON schema 5 `motionCandidate` and visible Status/Settings result explicitly mark units, gear enum, stationary state, vehicle write authorization all **unverified/false**. No vehicle control, no ON/OFF inference, no background motion sampling. Source tests and CI needed; [parked procedure](motion-fid-acceptance.md).
 - This is a **P1/P2 partial slice**, neither P1 nor P2 nor P3 complete.
+
+## 2026-10-22 owner test — v0.3.2+6 stream-lifecycle regression implementation
+- 14:43 (Cairo) private schema-5 JSON export: ADB connected, 84% SOC, 42,261.1 km candidate, reflected SDK32 and speed/gear FIDs; stream status operator_stopped, motion/charging sections empty. Screenshots 14:47–14:48 are **later**, showing parked speed raw 0.0 and gearbox raw 1, BMS code 15, and an adb_session_changed stop. Time difference alone does not prove report lost newer readings.
+- Source defects confirmed: stop on all adbConnect calls; stop-before-first-start caused stale stopped replay; repeated Flutter/native cleanup overwrote prior stop reason; repeated ADB connect wiped captured diagnostics unnecessarily. Fixes in v0.3.2, native Kotlin tests and Flutter regression test pending CI.
+- Schema-6 report now carries first stop reason, accepted timestamp/sequence and sessionValid field on stored motion/charging samples. Reusing ADB leaves current candidate values intact; genuine reconnect tags historical observations as stale.
+- Counter 7186.2 shown in screenshot is **raw unverified value**, not verified kWh. Derived range/consumption now unavailable pending validated energy units and charging exclusion.
+- No vehicle writes, new permissions, daemon installation or OEM AVM changes. See [parked retest instructions](owner-stream-regression-v032.md). P1/P2/P3 still OPEN.

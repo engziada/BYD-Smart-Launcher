@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'core/adb_observation_scope.dart';
 import 'core/vehicle_gateway.dart';
 import 'core/vehicle_snapshot.dart';
 
@@ -167,11 +168,16 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   /// Only an explicit operator action can start firmware-derived GET sampling.
   /// Android owns the five-second clock and stops on app background or missing
   /// native listener. This Flutter view never authorizes any vehicle writes.
-  void _stopDashboard({String reason = 'Native stream stopped. Readings cleared.'}) {
+  void _stopDashboard({
+    String reason = 'Native stream stopped. Readings cleared.',
+    bool notifyNative = true,
+  }) {
     _dashboardSession++;
     _nativeStreamSubscription?.cancel();
     _nativeStreamSubscription = null;
-    unawaited(_gateway.stopNativeCandidateStream());
+    if (notifyNative) {
+      unawaited(_gateway.stopNativeCandidateStream());
+    }
     if (mounted) {
       setState(() {
         _dashboardEnabled = false;
@@ -239,7 +245,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     if (status == 'stopped') {
       _stopDashboard(
           reason: 'Native stream stopped: ${event['reason'] ?? 'unknown'}. '
-              'No automatic retry or vehicle commands.');
+              'No automatic retry or vehicle commands.',
+          notifyNative: false);
     }
   }
 
@@ -264,6 +271,12 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         setState(() => _dashboardNotice =
             'ADB unavailable: ${connection['adbFailure'] ?? connection['error'] ?? connection['adb'] ?? 'unknown'}.');
         return;
+      }
+      if (connection['sessionReused'] != true) {
+        setState(() {
+          _motionCandidate = {};
+          _chargingCandidate = {};
+        });
       }
 
       _nativeStreamSubscription = _gateway.candidateStream.listen(
@@ -373,7 +386,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             _chargingCandidate = response;
           } else if (action == 'motion') {
             _motionCandidate = response;
-          } else if (action == 'disconnect' || action == 'connect') {
+          } else if (shouldClearAdbObservations(action, response)) {
             _chargingCandidate = {};
             _motionCandidate = {};
             _rangeCandidate = {};
@@ -738,9 +751,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           if (!_demo)
             Text(_dashboardNotice),
           if (!_demo && _dashboardSampledAt != null)
-            Text('Last native sample: '
+            Text('Last ${_rangeCandidate['streamState'] == 'candidate' ? 'native' : 'manual'} sample: '
                  '${TimeOfDay.fromDateTime(_dashboardSampledAt!).format(context)} '
-                 '• ${_dashboardEnabled ? 'native read-only stream ON' : 'updates STOPPED'}'),
+                 '• ${_dashboardEnabled ? 'native stream ON' : 'updates STOPPED'}'),
           if (!_demo)
             Wrap(spacing: 12, runSpacing: 8, children: [
               FilledButton.icon(
@@ -803,7 +816,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         ]);
       case LauncherPage.range:
         return _section('Real range — diagnostic candidate',
-            'BYDMate fallback FIDs • NOT verified on Song Plus; use original BYD instruments', [
+            'Unverified counter units and consumption • rely on original BYD instruments', [
           _info('Unverified vehicle readings',
               'Only explicit sampling. No background monitoring or car controls.',
               Icons.warning_amber_outlined),
@@ -814,7 +827,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ]),
           Row(children: [
             _metric('Odometer candidate', _candidateValue('odometerCandidateKm', 'km'), Icons.speed),
-            _metric('Energy counter', _candidateValue('energyCandidateKwh', 'kWh'), Icons.electric_bolt_outlined),
+            _metric('Energy counter · units unknown',
+                _candidateValue('energyCandidateKwh', 'raw'),
+                Icons.electric_bolt_outlined),
             _metric('Distance window', _candidateValue('windowDistanceKm', 'km'), Icons.route),
           ]),
           TextField(

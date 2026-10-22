@@ -17,7 +17,10 @@ internal class SafeAdbTransport(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences("range_preferences", Context.MODE_PRIVATE)
     private val consumption = ConsumptionWindow()
 
-    private var client: AdbProtocolClient? = null
+    @Volatile private var client: AdbProtocolClient? = null
+    /** A transport-level check only. Does NOT confirm vehicle telemetry or writes. */
+    fun hasConnectedSession(): Boolean =
+        state == "connected" && client?.isConnected() == true
     /** In-memory only. Never persisted as a write capability or reused across reconnects. */
     @Volatile private var nativeStreamCatalog: StreamCatalog? = null
     private data class StreamCatalog(val device: Int, val socFid: Int, val odometerFid: Int)
@@ -303,15 +306,18 @@ internal class SafeAdbTransport(context: Context) {
             readAtElapsedMs = SystemClock.elapsedRealtime(),
         )
         // One missed field invalidates the whole sample. Rejecting it never advances the window.
-        val avg = consumption.add(sample)
+        // Preserve raw research window diagnostics only. This counter's
+        // physical units and whether DC charging advances it remain unverified
+        // on the owner's car; deriving kWh/100km or range would be misleading.
+        consumption.add(sample)
         val capacity = (capacityStatus()["usableCapacityKwh"] as? Number)?.toDouble()
         return mapOf(
             "ok" to sample.valid,
             "socCandidatePercent" to sample.soc,
             "energyCandidateKwh" to sample.energyKwh,
             "odometerCandidateKm" to sample.odometerKm,
-            "consumptionCandidateKwhPer100km" to avg,
-            "rangeCandidateKm" to if (sample.valid) consumption.rangeKm(sample.soc, capacity) else null,
+            "consumptionCandidateKwhPer100km" to null,
+            "rangeCandidateKm" to null,
             "usableCapacityKwh" to capacity,
             "sampleCount" to consumption.stats()["samples"],
             "windowDistanceKm" to consumption.stats()["windowDistanceKm"],

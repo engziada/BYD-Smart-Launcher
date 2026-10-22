@@ -27,6 +27,8 @@ internal class NativeReadOnlyStream(
     private var running = false
     private var pending: Runnable? = null
     private var current = status("idle", "explicit_start_required")
+    private var lastAcceptedAtEpochMs: Long? = null
+    private var lastAcceptedSequence: Long? = null
 
     private fun status(state: String, reason: String) = mapOf<String, Any?>(
         "streamState" to state,
@@ -61,6 +63,8 @@ internal class NativeReadOnlyStream(
         val token = ++generation
         running = true
         policy.reset()
+        lastAcceptedAtEpochMs = null
+        lastAcceptedSequence = null
         publish(status("initializing", "reflecting_firmware_fids"))
         worker.execute {
             val prepared = try {
@@ -91,14 +95,21 @@ internal class NativeReadOnlyStream(
             main.post {
                 if (token != generation || !running || sink == null) return@post
                 val verdict = policy.inspect(raw, System.currentTimeMillis())
-                publish(verdict)
                 if (verdict["streamState"] == "candidate") {
+                    lastAcceptedAtEpochMs =
+                        (verdict["capturedAtEpochMs"] as? Number)?.toLong()
+                    lastAcceptedSequence =
+                        (verdict["sequence"] as? Number)?.toLong()
                     onAcceptedSample(verdict)
                 }
                 if (verdict["streamState"] == "stopped") {
                     running = false
                     adb.stopNativeCandidateStream()
+                    publish(stoppedStatus(
+                        verdict["reason"] as? String ?: "candidate_stream_rejected"
+                    ))
                 } else {
+                    publish(verdict)
                     val next = Runnable { sample(token) }
                     pending = next
                     main.postDelayed(next, SAMPLE_INTERVAL_MS)
@@ -113,23 +124,40 @@ internal class NativeReadOnlyStream(
         pending?.let(main::removeCallbacks)
         pending = null
         adb.stopNativeCandidateStream()
-        publish(status("stopped", reason))
+        publish(stoppedStatus(reason))
     }
 
-    /** Always called on main thread; safe from lifecycle callbacks. */
+    private fun stoppedStatus(reason: String): Map<String, Any?> =
+        status("stopped", reason) + mapOf(
+            "stoppedAtEpochMs" to System.currentTimeMillis(),
+            "lastAcceptedAtEpochMs" to lastAcceptedAtEpochMs,
+            "lastAcceptedSequence" to lastAcceptedSequence
+        )
+
+    /**
+     * The FIRST terminal reason is retained after stop/cancel/dispose.
+     * A duplicate Flutter "stop" must not overwrite e.g. adb_session_changed
+     * with operator_stopped and destroy the root cause in exported diagnostics.
+     */
     fun stop(reason: String = "operator_stopped"): Map<String, Any?> {
+        val effectiveReason = AdbSessionChangePolicy.effectiveStopReason(
+            running, current["streamState"] as? String,
+            current["reason"] as? String, reason
+        )
+        if (!running && current["streamState"] in setOf("idle", "stopped")) {
+            // Connecting ADB before a stream ever started is NOT a stream
+            // termination. Keep "idle" so the next EventChannel listener can
+            // start successfully instead of receiving a stale "stopped" event.
+            return current + mapOf("ok" to true)
+        }
         ++generation
         running = false
         pending?.let(main::removeCallbacks)
         pending = null
         adb.stopNativeCandidateStream()
         policy.reset()
-        publish(status("stopped", reason))
-        return mapOf(
-            "ok" to true, "streamState" to "stopped",
-            "reason" to reason,
-            "vehicleWriteAuthorized" to false
-        )
+        publish(stoppedStatus(effectiveReason))
+        return current + mapOf("ok" to true)
     }
 
     private fun publish(event: Map<String, Any?>) {
