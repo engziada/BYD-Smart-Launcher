@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'core/adb_observation_scope.dart';
 import 'core/adb_stream_recovery.dart';
 import 'core/charging_visual_mode.dart';
+import 'core/planning_range.dart';
 import 'core/vehicle_gateway.dart';
 import 'core/vehicle_snapshot.dart';
 import 'widgets/charging_flow_scene.dart';
@@ -101,6 +102,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   int _tgPending = 0;
   String _tgMessage = 'No bot credentials are uploaded to GitHub.';
   final _batteryCapacity = TextEditingController();
+  final _planningSoc = TextEditingController();
+  final _planningConsumption = TextEditingController();
+  double? _planRangeKm;
+  String _planRangeOrigin = 'Enter values to calculate a planning estimate.';
   bool _rangeBusy = false;
   Map<Object?, Object?> _rangeCandidate = {};
   StreamSubscription<Map<Object?, Object?>>? _nativeStreamSubscription;
@@ -130,6 +135,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     _connect();
     _loadTelegramStatus();
     _loadCapacityStatus();
+    _loadPlanningConsumption();
     _loadAutomationStatus();
   }
 
@@ -704,6 +710,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     _tgToken.dispose();
     _tgChat.dispose();
     _batteryCapacity.dispose();
+    _planningSoc.dispose();
+    _planningConsumption.dispose();
     _socRuleThreshold.dispose();
     _subscription?.cancel();
     _gateway.dispose();
