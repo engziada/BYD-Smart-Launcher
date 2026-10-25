@@ -1,6 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' show MaskFilter;
-
 import 'package:flutter/material.dart';
 
 /// Original vector illustration. No Kinex/BYDMate models, assets or internals.
@@ -208,7 +206,7 @@ class _VehicleChargePainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke);
     if (flowEnabled) {
-      final green = const Color(0xFF52FF9A);
+      const green = Color(0xFF52FF9A);
       canvas.drawPath(cable, Paint()
         ..color = green.withValues(alpha: 0.35)
         ..style = PaintingStyle.stroke
