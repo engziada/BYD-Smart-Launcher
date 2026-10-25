@@ -60,7 +60,7 @@ extension LauncherPageInfo on LauncherPage {
   String get label => switch (this) {
     LauncherPage.status => 'Status',
     LauncherPage.blindSpot => 'Blind Spot',
-    LauncherPage.range => 'Real Range',
+    LauncherPage.range => 'Range Planner',
     LauncherPage.automations => 'Automations',
     LauncherPage.telegram => 'Telegram',
     LauncherPage.controls => 'Controls',
@@ -904,8 +904,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           previewRequested: _chargeDesignPreview,
           chargingDiagnostic: _chargingCandidate,
         );
-        return _section('Native telemetry — P2 technical preview',
-            'Firmware-gated 5-second stream • SOC/mileage candidates • not OEM-certified', [
+        return _section('Vehicle overview',
+            'BYD Song Plus • read-only car data • clear source labels • no vehicle commands', [
           if (!_demo)
             Wrap(spacing: 12, runSpacing: 8, children: [
               FilledButton.icon(
@@ -956,19 +956,19 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             onChanged: (value) =>
                 setState(() => _chargeDesignPreview = value),
           ),
-          _info(_demo ? 'DEMO — synthetic readings' : 'Native read-only candidate telemetry',
+          _info(_demo ? 'DEMO — synthetic readings' : 'Vehicle data — read-only connection',
               _demo
                   ? 'No car connection, updates, or commands in demo mode.'
                   : 'SOC/odometer use the firmware-discovered FIDs; stream stops on stale data. '
                     'No vehicle writes, camera access, or automatic Telegram dispatch.',
               Icons.dashboard_outlined),
           Row(children: [
-            _metric(_demo ? 'Battery • DEMO' : 'Battery • candidate',
+            _metric(_demo ? 'Battery • DEMO' : 'Battery • car read',
                 _demo
                     ? _value(_snapshot.socPercent, '%')
                     : _candidateValue('socCandidatePercent', '%', precision: 0),
                 Icons.battery_full_outlined),
-            _metric(_demo ? 'Speed • DEMO' : 'Odometer • candidate',
+            _metric(_demo ? 'Speed • DEMO' : 'Odometer • car read',
                 _demo
                     ? _value(_snapshot.speedKmh, ' km/h')
                     : _candidateValue('odometerCandidateKm', 'km'),
@@ -998,8 +998,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 'BMS ${_chargingCandidate['bmsPhaseCandidate'] ?? 'unknown'} • '
                 'No charge-complete alerts',
                 Icons.ev_station_outlined),
-          _info('Blind-spot camera: not yet integrated',
-              'OEM reverse/360 camera remains in control; no overlay activated',
+          _info('Blind-spot camera: requires OEM integration',
+              'Factory reverse/360 remains available. No camera surface claimed.',
               Icons.videocam_off_outlined),
         ]);
       case LauncherPage.blindSpot:
@@ -1235,13 +1235,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               'have manual retry. ON/OFF alerts remain disabled pending verification.'),
         ]);
       case LauncherPage.controls:
-        return _section('Vehicle controls', 'Safety gated; no write API yet', [
+        return _section('Vehicle controls', 'Not available until this firmware grants verified, safely gated write access', [
           _info('Commands unavailable',
               'Car firmware must be verified. Only allowlisted comfort commands '
               'with safe conditions and confirmation may be enabled.',
               Icons.shield_outlined),
-          const Text('Planned: climate, windows and supported comfort options. '
-              'Driving and safety-critical systems remain out of scope.'),
+          const Text('Climate, windows and comfort commands need a verified '
+              'BYD control API, proven parked-state inputs and readback. '
+              'Buttons that only simulate control are deliberately not presented '
+              'as live vehicle features.'),
         ]);
       case LauncherPage.settings:
         return _section('Settings & diagnostics',
