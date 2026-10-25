@@ -573,6 +573,113 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   }
 
 
+  Future<void> _loadPlanningConsumption() async {
+    final info = await _gateway.planningConsumptionStatus();
+    final avg = info['averageKwhPer100Km'];
+    if (mounted && avg is num) {
+      setState(() => _planningConsumption.text = avg.toStringAsFixed(1));
+    }
+  }
+
+  Future<void> _savePlanningConsumption() async {
+    if (_rangeBusy || _demo) return;
+    final raw = _planningConsumption.text.trim();
+    final avg = raw.isEmpty ? null : double.tryParse(raw);
+    if (raw.isNotEmpty &&
+        (avg == null || !avg.isFinite || avg < 5 || avg > 45)) {
+      setState(() => _planRangeOrigin =
+          'Enter an average consumption between 5–45 kWh/100 km.');
+      return;
+    }
+    setState(() => _rangeBusy = true);
+    try {
+      final result = await _gateway.setPlanningConsumption(avg);
+      if (!mounted) return;
+      setState(() => _planRangeOrigin = result['ok'] == true
+          ? 'Your consumption assumption is saved locally, not measured by BYD.'
+          : 'Save failed: ${result['error'] ?? 'unknown'}');
+    } finally {
+      if (mounted) setState(() => _rangeBusy = false);
+    }
+  }
+
+  void _calculatePlanningRange() {
+    final candidate = _rangeCandidate['socCandidatePercent'];
+    final freshness = _dashboardSampledAt == null
+        ? null
+        : DateTime.now().difference(_dashboardSampledAt!);
+    final hasFreshVehicleSoc = !_demo &&
+        _rangeCandidate['ok'] == true &&
+        _rangeCandidate['catalogMatched'] == true &&
+        candidate is num &&
+        freshness != null &&
+        !freshness.isNegative &&
+        freshness.inSeconds <= 15;
+    final manualSoc = double.tryParse(_planningSoc.text.trim());
+    final soc = hasFreshVehicleSoc ? candidate : manualSoc;
+    final result = calculatePlanningRange(
+      socPercent: soc,
+      usableCapacityKwh: double.tryParse(_batteryCapacity.text.trim()),
+      averageKwhPer100Km: double.tryParse(_planningConsumption.text.trim()),
+    );
+    setState(() {
+      _planRangeKm = result?.rangeKm;
+      _planRangeOrigin = result == null
+          ? 'Enter a current SOC (0–100%), battery capacity (5–200 kWh) '
+            'and average consumption (5–45 kWh/100 km).'
+          : 'Planning estimate only • SOC: '
+            '${hasFreshVehicleSoc ? 'fresh car read candidate' : 'user entered'} '
+            '• Capacity and consumption: user provided • '
+            'not measured BMS Real Range.';
+    });
+  }
+
+  Future<void> _confirmManualStatus() async {
+    if (_tgBusy || _demo || !_tgConfigured) return;
+    final sample = _rangeCandidate;
+    final soc = sample['socCandidatePercent'];
+    final odo = sample['odometerCandidateKm'];
+    final age = _dashboardSampledAt == null
+        ? null : DateTime.now().difference(_dashboardSampledAt!);
+    final fresh = _dashboardEnabled &&
+        sample['streamState'] == 'candidate' &&
+        sample['catalogMatched'] == true &&
+        soc is num && odo is num && age != null &&
+        !age.isNegative && age.inSeconds <= 15;
+    if (!fresh) {
+      setState(() => _tgMessage =
+          'Start the live read-only stream on Status and wait for a fresh '
+          'SOC/odometer sample before sending.');
+      return;
+    }
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Send current vehicle status?'),
+        content: Text(
+          'Send a private Telegram message to your configured chat with '
+          'SOC ${soc.toStringAsFixed(0)}% and odometer '
+          '${odo.toStringAsFixed(1)} km?\\n\\n'
+          'These are fresh, read-only candidate values, not independently '
+          'OEM-certified. Nothing is sent automatically.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Send once'),
+          ),
+        ],
+      ),
+    );
+    if (approved == true && mounted) {
+      await _telegramAction('status');
+    }
+  }
+
   /// Explicit one-shot dashboard read without an energy-counter dependency.
   Future<void> _sampleDashboardOnce() async {
     if (_dashboardEnabled) {
