@@ -228,9 +228,9 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
       calls.add(call.method);
-      if (call.arguments is Map) params.addAll(
-        (call.arguments as Map).cast<String, Object?>(),
-      );
+      if (call.arguments is Map) {
+        params.addAll((call.arguments as Map).cast<String, Object?>());
+      }
       return <String, Object?>{'ok': true, 'sent': true};
     });
     const gateway = PlatformVehicleGateway();
