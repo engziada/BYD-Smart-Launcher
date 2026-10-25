@@ -22,6 +22,8 @@ abstract interface class VehicleGateway {
   Future<Map<Object?, Object?>> stopNativeCandidateStream();
   Future<Map<Object?, Object?>> rangeCapacityStatus();
   Future<Map<Object?, Object?>> setRangeCapacity(double? kwh);
+  Future<Map<Object?, Object?>> planningConsumptionStatus();
+  Future<Map<Object?, Object?>> setPlanningConsumption(double? kwhPer100Km);
   Future<Map<Object?, Object?>> automationStatus();
   Future<Map<Object?, Object?>> automationAdd(String kind, double? thresholdPercent);
   Future<Map<Object?, Object?>> automationToggle(String id, bool enabled);
@@ -150,6 +152,23 @@ class PlatformVehicleGateway implements VehicleGateway {
       return await _methods.invokeMapMethod<Object?, Object?>(
             'rangeCapacitySet', {'kwh': kwh},
           ) ?? {};
+    } on PlatformException {
+      return {'ok': false, 'error': 'platform_unavailable'};
+    } on MissingPluginException {
+      return {'ok': false, 'error': 'not_implemented'};
+    }
+  }
+
+  @override
+  Future<Map<Object?, Object?>> planningConsumptionStatus() =>
+      _adbAction('planningConsumptionStatus');
+
+  @override
+  Future<Map<Object?, Object?>> setPlanningConsumption(double? kwhPer100Km) async {
+    try {
+      return await _methods.invokeMapMethod<Object?, Object?>(
+        'planningConsumptionSet', {'kwhPer100Km': kwhPer100Km},
+      ) ?? {};
     } on PlatformException {
       return {'ok': false, 'error': 'platform_unavailable'};
     } on MissingPluginException {
@@ -310,6 +329,14 @@ class DemoVehicleGateway implements VehicleGateway {
   @override
   Future<Map<Object?, Object?>> setRangeCapacity(double? kwh) async =>
       {'ok': false, 'reason': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> planningConsumptionStatus() async =>
+      {'ok': false, 'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> setPlanningConsumption(double? kwhPer100Km) async =>
+      {'ok': false, 'error': 'demo_only'};
 
   @override
   Future<Map<Object?, Object?>> automationStatus() async =>
