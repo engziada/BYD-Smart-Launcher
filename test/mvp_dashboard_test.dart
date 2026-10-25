@@ -134,6 +134,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Start native read-only stream'), findsOneWidget);
     expect(find.textContaining('firmware_fids_or_scale_unvalidated'), findsOneWidget);
-    expect(find.text('—'), findsWidgets);
+    // With the visual hero card, the metric tiles can be below the fold.
+    // Assert the visible scene reports missing telemetry, not a guessed SOC.
+    expect(find.text('SOC unavailable'), findsOneWidget);
+    expect(find.text('CHARGING STATE NOT VERIFIED'), findsOneWidget);
   });
 }

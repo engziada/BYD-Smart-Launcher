@@ -37,7 +37,8 @@
 
 **Source-level inventory begun:** [P1_SUPPORTED_APIS.md](P1_SUPPORTED_APIS.md) (P1 still open pending exhaustive binary/SDK/command audit).\n\n**Exit gate:** `P1_SUPPORTED_APIS.md` with verified and unsupported operations, audit source/commit per item and safe implementation decisions for P2/P3.
 
-- [x] v0.3.2+6 source regression: duplicate ADB Connect no longer stops native stream; preserve first terminal reason and sample provenance across real reconnects; unverified energy counter no longer derives range. CI and parked acceptance tracked separately.\n\n## P2 — Live telemetry (SECOND)
+- [x] v0.3.2+6 source regression: duplicate ADB Connect no longer stops native stream; preserve first terminal reason and sample provenance across real reconnects; unverified energy counter no longer derives range.
+- [x] v0.3.3+7 source update: ignore stale previous-session stop events on new listener; one bounded foreground reconnect only after unexpected ADB transport loss with fresh FID revalidation; manual vector **charging-cable design preview** (never triggers from unverified BMS/SOC). CI/owner tests tracked separately. CI and parked acceptance tracked separately.\n\n## P2 — Live telemetry (SECOND)
 
 - [ ] Implement single-APK, version-authenticated BYD shell helper and bounded read-only native SDK/Binder bridge based on audited P1 contracts.
 - [x] Implement first typed native EventChannel **candidate stream** from reflected known SOC/odometer FIDs with timestamp, monotonic sequence, stale suppression and foreground-only lifecycle.\n- [ ] Complete full stable/verified telemetry: native helper version/authentication, background/ignition/sleep/reboot recovery, speed/gear/etc field validation and OEM checks.

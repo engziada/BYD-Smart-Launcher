@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'core/adb_observation_scope.dart';
+import 'core/adb_stream_recovery.dart';
+import 'core/charging_visual_mode.dart';
 import 'core/vehicle_gateway.dart';
 import 'core/vehicle_snapshot.dart';
+import 'widgets/charging_flow_scene.dart';
 
 final ValueNotifier<bool> _lightMode = ValueNotifier<bool>(false);
 
@@ -101,6 +104,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   bool _rangeBusy = false;
   Map<Object?, Object?> _rangeCandidate = {};
   StreamSubscription<Map<Object?, Object?>>? _nativeStreamSubscription;
+  bool _chargeDesignPreview = false;
+  bool _streamSessionArmed = false;
+  bool _streamRecoveryUsed = false;
+  bool _operatorDisconnected = false;
+  bool _appInForeground = true;
   int _dashboardSession = 0;
   bool _dashboardEnabled = false;
   bool _dashboardStarting = false;
@@ -173,6 +181,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     bool notifyNative = true,
   }) {
     _dashboardSession++;
+    _streamSessionArmed = false;
     _nativeStreamSubscription?.cancel();
     _nativeStreamSubscription = null;
     if (notifyNative) {
@@ -191,7 +200,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed &&
+    _appInForeground = state == AppLifecycleState.resumed;
+    if (!_appInForeground &&
         (_dashboardEnabled || _dashboardStarting)) {
       _stopDashboard(
           reason: 'Stream stopped in background. Tap Start to reconnect.');
@@ -205,10 +215,12 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     }
     final status = event['streamState'];
     if (status == 'initializing' || status == 'idle') {
+      if (status == 'initializing') _streamSessionArmed = true;
       setState(() => _dashboardNotice = 'Resolving firmware FIDs (GET only)…');
       return;
     }
     if (status == 'candidate') {
+      _streamSessionArmed = true;
       final soc = event['socCandidatePercent'];
       final mileage = event['odometerCandidateKm'];
       final sampleEpoch = event['capturedAtEpochMs'];
@@ -243,17 +255,57 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
       return;
     }
     if (status == 'stopped') {
+      // EventChannel broadcasts its previous stopped status to every new
+      // listener. Ignore that OLD session until this Start initializes.
+      if (ignoreUnarmedNativeStop(
+          seenCurrentSessionInitialization: _streamSessionArmed)) {
+        return;
+      }
+      final reason = event['reason'] as String?;
+      if (shouldAttemptAdbStreamRecovery(
+        reason: reason,
+        inForeground: _appInForeground,
+        operatorDisconnected: _operatorDisconnected,
+        recoveryAlreadyTried: _streamRecoveryUsed,
+      )) {
+        _retryUnexpectedAdbLoss(reason!);
+        return;
+      }
       _stopDashboard(
-          reason: 'Native stream stopped: ${event['reason'] ?? 'unknown'}. '
-              'No automatic retry or vehicle commands.',
+          reason: 'Native stream stopped: ${reason ?? 'unknown'}. '
+              'Start again while parked; no vehicle commands.',
           notifyNative: false);
     }
   }
 
-  Future<void> _startDashboard() async {
+  /// One bounded recovery from an UNEXPECTED loss only. The old values are
+  /// cleared immediately and the native FID/identity gate must run again.
+  /// A second loss leaves the stream stopped for explicit user action.
+  void _retryUnexpectedAdbLoss(String reason) {
+    _streamRecoveryUsed = true;
+    _stopDashboard(
+      reason: 'ADB lost ($reason). Reconnecting once after 2 seconds…',
+      notifyNative: false,
+    );
+    final stoppedSession = _dashboardSession;
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      if (!mounted || !_appInForeground || _operatorDisconnected || _demo ||
+          stoppedSession != _dashboardSession) {
+        return;
+      }
+      unawaited(_startDashboard(recovery: true));
+    });
+  }
+
+  Future<void> _startDashboard({bool recovery = false}) async {
     if (_demo || _dashboardEnabled || _dashboardStarting || _adbBusy) {
       return;
     }
+    if (!recovery) {
+      _streamRecoveryUsed = false;
+      _operatorDisconnected = false;
+    }
+    _streamSessionArmed = false;
     final session = ++_dashboardSession;
     setState(() {
       _dashboardStarting = true;
@@ -360,7 +412,14 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
 
   Future<void> _adbAction(String action) async {
     if (_adbBusy || _demo || _dashboardStarting) return;
-    if (action == 'disconnect') _stopDashboard(reason: 'ADB disconnected; dashboard stopped.');
+    if (action == 'disconnect') {
+      _operatorDisconnected = true;
+      _stopDashboard(reason: 'ADB disconnected by operator; dashboard stopped.');
+    }
+    if (action == 'connect' && _dashboardEnabled) {
+      // A manually requested connection change is not an unexpected loss.
+      _streamRecoveryUsed = true;
+    }
     setState(() {
       _adbBusy = true;
       _diagnostics = action == 'connect'
@@ -723,37 +782,12 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 socCandidate >= 0 && socCandidate <= 100
             ? socCandidate.toDouble() / 100.0
             : null;
+        final flowMode = resolveChargingVisualMode(
+          previewRequested: _chargeDesignPreview,
+          chargingDiagnostic: _chargingCandidate,
+        );
         return _section('Native telemetry — P2 technical preview',
             'Firmware-gated 5-second stream • SOC/mileage candidates • not OEM-certified', [
-          _info(_demo ? 'DEMO — synthetic readings' : 'Native read-only candidate telemetry',
-              _demo
-                  ? 'No car connection, updates, or commands in demo mode.'
-                  : 'SOC/odometer use the firmware-discovered FIDs; stream stops on stale data. '
-                    'No vehicle writes, camera access, or automatic Telegram dispatch.',
-              Icons.dashboard_outlined),
-          Row(children: [
-            _metric(_demo ? 'Battery • DEMO' : 'Battery • candidate',
-                _demo
-                    ? _value(_snapshot.socPercent, '%')
-                    : _candidateValue('socCandidatePercent', '%', precision: 0),
-                Icons.battery_full_outlined),
-            _metric(_demo ? 'Speed • DEMO' : 'Odometer • candidate',
-                _demo
-                    ? _value(_snapshot.speedKmh, ' km/h')
-                    : _candidateValue('odometerCandidateKm', 'km'),
-                Icons.speed_outlined),
-            _metric('Real range', _demo
-                ? _value(_snapshot.rangeEstimateKm, ' km')
-                : '—', Icons.route_outlined),
-          ]),
-          if (!_demo && socValue != null)
-            LinearProgressIndicator(value: socValue),
-          if (!_demo)
-            Text(_dashboardNotice),
-          if (!_demo && _dashboardSampledAt != null)
-            Text('Last ${_rangeCandidate['streamState'] == 'candidate' ? 'native' : 'manual'} sample: '
-                 '${TimeOfDay.fromDateTime(_dashboardSampledAt!).format(context)} '
-                 '• ${_dashboardEnabled ? 'native stream ON' : 'updates STOPPED'}'),
           if (!_demo)
             Wrap(spacing: 12, runSpacing: 8, children: [
               FilledButton.icon(
@@ -786,6 +820,51 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 label: const Text('Probe raw speed & gear once'),
               ),
             ]),
+          if (!_demo)
+            Text(_dashboardNotice),
+          ChargingFlowScene(
+            previewEnabled: flowMode == ChargingVisualMode.designPreview,
+            socCandidate: _demo
+                ? _snapshot.socPercent?.toDouble()
+                : socCandidate is num ? socCandidate.toDouble() : null,
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Preview animated charging cable'),
+            subtitle: const Text(
+                'Design preview only — NOT actual charger/vehicle status. '
+                'Never triggered by unverified charging FIDs.'),
+            value: _chargeDesignPreview,
+            onChanged: (value) =>
+                setState(() => _chargeDesignPreview = value),
+          ),
+          _info(_demo ? 'DEMO — synthetic readings' : 'Native read-only candidate telemetry',
+              _demo
+                  ? 'No car connection, updates, or commands in demo mode.'
+                  : 'SOC/odometer use the firmware-discovered FIDs; stream stops on stale data. '
+                    'No vehicle writes, camera access, or automatic Telegram dispatch.',
+              Icons.dashboard_outlined),
+          Row(children: [
+            _metric(_demo ? 'Battery • DEMO' : 'Battery • candidate',
+                _demo
+                    ? _value(_snapshot.socPercent, '%')
+                    : _candidateValue('socCandidatePercent', '%', precision: 0),
+                Icons.battery_full_outlined),
+            _metric(_demo ? 'Speed • DEMO' : 'Odometer • candidate',
+                _demo
+                    ? _value(_snapshot.speedKmh, ' km/h')
+                    : _candidateValue('odometerCandidateKm', 'km'),
+                Icons.speed_outlined),
+            _metric('Real range', _demo
+                ? _value(_snapshot.rangeEstimateKm, ' km')
+                : '—', Icons.route_outlined),
+          ]),
+          if (!_demo && socValue != null)
+            LinearProgressIndicator(value: socValue),
+          if (!_demo && _dashboardSampledAt != null)
+            Text('Last ${_rangeCandidate['streamState'] == 'candidate' ? 'native' : 'manual'} sample: '
+                 '${TimeOfDay.fromDateTime(_dashboardSampledAt!).format(context)} '
+                 '• ${_dashboardEnabled ? 'native stream ON' : 'updates STOPPED'}'),
           if (_rangeBusy || _dashboardStarting)
             const LinearProgressIndicator(),
           if (!_demo && _motionCandidate.isNotEmpty)
