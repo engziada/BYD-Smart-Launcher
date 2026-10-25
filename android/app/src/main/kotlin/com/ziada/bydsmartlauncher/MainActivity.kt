@@ -108,6 +108,33 @@ class MainActivity : FlutterActivity() {
                         val value = call.argument<Number>("kwh")?.toDouble()
                         result.success(adb.configureCapacity(value))
                     }
+                    "planningConsumptionStatus" ->
+                        result.success(adb.planningConsumptionStatus())
+                    "planningConsumptionSet" -> {
+                        val value = call.argument<Number>("kwhPer100Km")?.toDouble()
+                        result.success(adb.planningConsumptionSet(value))
+                    }
+                    "telegramSendStatus" -> {
+                        // Snapshot the accepted stream state on the main thread.
+                        val active = candidateStream.currentStatus()["streamState"] == "candidate"
+                        val connected = adb.hasConnectedSession()
+                        val sample = lastTelemetrySample.toMap()
+                        if (!active || !connected) {
+                            result.success(mapOf(
+                                "ok" to false, "sent" to false,
+                                "error" to "active_fresh_stream_required"
+                            ))
+                        } else {
+                            worker.execute {
+                                val response = try {
+                                    telegram.sendManualStatus(sample, System.currentTimeMillis())
+                                } catch (_: Exception) {
+                                    mapOf("ok" to false, "sent" to false, "error" to "send_failed")
+                                }
+                                mainHandler.post { result.success(response) }
+                            }
+                        }
+                    }
                     "telegramSave", "telegramClear", "telegramTest",
                     "telegramRetry", "telegramClearPending" -> {
                         worker.execute {

@@ -3,7 +3,9 @@
 Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025** head unit.
 
 ## Current status
-**v0.3.3+7 — Technical Preview, not an accepted functional MVP.** The app has an explicit on-device ADB RSA/TLS connection, read-only SOC/odometer candidate sampling, firmware FID discovery, and a **native foreground 5-second candidate event stream** with explicit Start/Stop, strict firmware-address matching, stale-data suppression, **manual raw speed/gear GET-only probes**, idempotent ADB session reuse, one bounded foreground reconnect after unexpected ADB loss, first-stop-reason retention and schema-6 sanitized diagnostics. The Status page also features an **original Flutter-drawn vehicle with a manual green charging-cable animation**; this is strictly labelled a DESIGN PREVIEW and is never activated automatically from unverified charging FIDs. The owner confirmed some SOC/odometer readings against the stock BYD interface; this does **not** validate a live telemetry stream, native helper, vehicle writes, real range, OEM camera pipeline or Telegram automatic events. Unavailable values are not fabricated.
+**v0.4.0+8 — Functional read-only Client Pilot, NOT an accepted all-features MVP or production release.** The app has an explicit on-device ADB RSA/TLS connection, read-only SOC/odometer candidate sampling, firmware FID discovery, and a **native foreground 5-second candidate event stream** with explicit Start/Stop, strict firmware-address matching, stale-data suppression, **manual raw speed/gear GET-only probes**, idempotent ADB session reuse, one bounded foreground reconnect after unexpected ADB loss, first-stop-reason retention and schema-6 sanitized diagnostics. The Status page also features an **original Flutter-drawn vehicle with a manual green charging-cable animation**; this is strictly labelled a DESIGN PREVIEW and is never activated automatically from unverified charging FIDs. The owner confirmed some SOC/odometer readings against the stock BYD interface; this does **not** validate a live telemetry stream, native helper, vehicle writes, real range, OEM camera pipeline or Telegram automatic events. Unavailable values are not fabricated.
+
+**New usable customer journeys:** (1) send a genuine **manual private Telegram status** containing the current fresh read-only SOC/odometer candidates, only after user confirmation and to a separately configured encrypted bot chat; (2) calculate and persist a user-parameter **Range Planner** estimate from capacity, average consumption and fresh-car/manual SOC. The calculator is not measured BMS Real Range. See [Client Pilot usage and honest capability matrix](docs/client-pilot-v040.md). All car controls and native side-camera feeds remain unavailable. **Commercial deployment requires resolving BYDMate's PolyForm Noncommercial license**.
 
 ## Current implementation priorities (owner revised 2026-10-21)
 1. **Recheck parent-project references, SDKs, APIs and ADB commands** — BYDMate and Kinex. Record exactly which source and version supports each API, and which capabilities are verified for the owner's DiLink 5.0 OS 2602.
@@ -29,7 +31,7 @@ Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025*
 ## Build
 Install Flutter, Android SDK, JDK 17 and use `flutter pub get && flutter test && flutter build apk --debug`. The Android wrapper may need generation on a new host via `flutter create --platforms=android --project-name byd_smart_launcher --org com.ziada .`; review any generated changes and preserve the project's Kotlin files. The independent native policy tests run with `bash scripts/test-native-core.sh` (requires `kotlinc`).
 
-## Range diagnostic sample (NOT for driving decisions)
+## Range Planner and raw research counters (NOT for driving decisions)
 
 In the **Real Range** tab, enter the verified usable battery capacity in kWh. While safely parked, use **Sample vehicle counters** at the start and end of a trip (the app process must stay alive between samples). The app calculates a *candidate* rolling kWh/100km after at least 1 km and a tentative range from SOC × usable capacity / consumption, provided all inputs are plausible.
 
@@ -39,9 +41,9 @@ In the **Real Range** tab, enter the verified usable battery capacity in kWh. Wh
 
 A **side-effect-free verified-only trigger evaluator** supports SOC threshold edges, power on/off edges, once-per-trip rules, cooldown, and stale/unverified suppression. A Flutter rule editor persists notification-only drafts on device, with a global default-OFF master switch and per-rule toggles. **Even when toggled on, these rules do not dispatch** in the current APK. It is not connected to the unverified ADB FIDs or the Telegram sender. Helper-derived power state, rule journal, background dispatcher and actual automatic notifications still require development and on-car acceptance. The pure BYDMate power-off deduplication policy is included separately, without a live event source.
 
-## Telegram diagnostics
+## Telegram (manual car status and diagnostic delivery)
 
-Telegram bot token/chat ID are stored with Android Keystore AES-GCM (app backups disabled). A test message is persisted locally before HTTPS send. A failed test remains in a bounded, deduplicated outbox, with **manual** retry and queue clearing; automatic retry is not implemented. The event is a fixed TEST type only. Never share a bot token, even in issue screenshots.
+Telegram bot token/chat ID are stored with Android Keystore AES-GCM (app backups disabled). A test message is persisted locally before HTTPS send. A failed test remains in a bounded, deduplicated outbox, with **manual** retry and queue clearing; automatic retry is not implemented. There is also a user-confirmed live read-only **manual SOC/odometer status** request when the native stream is fresh; it sends over HTTPS once, without queuing/automatic retries of private car readings. No ON/OFF or charging alerts are automatic. Never share a bot token, even in issue screenshots.
 
 ## Firmware read-only discovery
 

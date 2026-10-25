@@ -22,6 +22,8 @@ abstract interface class VehicleGateway {
   Future<Map<Object?, Object?>> stopNativeCandidateStream();
   Future<Map<Object?, Object?>> rangeCapacityStatus();
   Future<Map<Object?, Object?>> setRangeCapacity(double? kwh);
+  Future<Map<Object?, Object?>> planningConsumptionStatus();
+  Future<Map<Object?, Object?>> setPlanningConsumption(double? kwhPer100Km);
   Future<Map<Object?, Object?>> automationStatus();
   Future<Map<Object?, Object?>> automationAdd(String kind, double? thresholdPercent);
   Future<Map<Object?, Object?>> automationToggle(String id, bool enabled);
@@ -31,6 +33,7 @@ abstract interface class VehicleGateway {
   Future<Map<Object?, Object?>> telegramSave(String token, String chatId);
   Future<Map<Object?, Object?>> telegramClear();
   Future<Map<Object?, Object?>> telegramSendTest();
+  Future<Map<Object?, Object?>> telegramSendCurrentStatus();
   Future<Map<Object?, Object?>> telegramOutboxStatus();
   Future<Map<Object?, Object?>> telegramRetry();
   Future<Map<Object?, Object?>> telegramClearPending();
@@ -157,6 +160,23 @@ class PlatformVehicleGateway implements VehicleGateway {
   }
 
   @override
+  Future<Map<Object?, Object?>> planningConsumptionStatus() =>
+      _adbAction('planningConsumptionStatus');
+
+  @override
+  Future<Map<Object?, Object?>> setPlanningConsumption(double? kwhPer100Km) async {
+    try {
+      return await _methods.invokeMapMethod<Object?, Object?>(
+        'planningConsumptionSet', {'kwhPer100Km': kwhPer100Km},
+      ) ?? {};
+    } on PlatformException {
+      return {'ok': false, 'error': 'platform_unavailable'};
+    } on MissingPluginException {
+      return {'ok': false, 'error': 'not_implemented'};
+    }
+  }
+
+  @override
   Future<Map<Object?, Object?>> automationStatus() => _adbAction('automationStatus');
 
   Future<Map<Object?, Object?>> _automationChange(String method, Map<String, Object?> args) async {
@@ -207,6 +227,10 @@ class PlatformVehicleGateway implements VehicleGateway {
 
   @override
   Future<Map<Object?, Object?>> telegramSendTest() => _adbAction('telegramTest');
+
+  @override
+  Future<Map<Object?, Object?>> telegramSendCurrentStatus() =>
+      _adbAction('telegramSendStatus');
 
   @override
   Future<Map<Object?, Object?>> telegramOutboxStatus() =>
@@ -307,6 +331,14 @@ class DemoVehicleGateway implements VehicleGateway {
       {'ok': false, 'reason': 'demo_only'};
 
   @override
+  Future<Map<Object?, Object?>> planningConsumptionStatus() async =>
+      {'ok': false, 'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> setPlanningConsumption(double? kwhPer100Km) async =>
+      {'ok': false, 'error': 'demo_only'};
+
+  @override
   Future<Map<Object?, Object?>> automationStatus() async =>
       {'ok': true, 'masterEnabled': false, 'executionConnected': false, 'rules': []};
 
@@ -340,6 +372,10 @@ class DemoVehicleGateway implements VehicleGateway {
 
   @override
   Future<Map<Object?, Object?>> telegramSendTest() async =>
+      {'ok': false, 'error': 'demo_only'};
+
+  @override
+  Future<Map<Object?, Object?>> telegramSendCurrentStatus() async =>
       {'ok': false, 'error': 'demo_only'};
 
   @override

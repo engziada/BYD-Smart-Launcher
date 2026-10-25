@@ -222,6 +222,33 @@ void main() {
     expect(methods, ['telegramOutboxStatus', 'telegramRetry', 'telegramClearPending']);
   });
 
+  test('real manual Telegram car status and planning are explicit native calls', () async {
+    final calls = <String>[];
+    final params = <String, Object?>{};
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      if (call.arguments is Map) {
+        params.addAll((call.arguments as Map).cast<String, Object?>());
+      }
+      return <String, Object?>{'ok': true, 'sent': true};
+    });
+    const gateway = PlatformVehicleGateway();
+    expect((await gateway.telegramSendCurrentStatus())['sent'], true);
+    expect((await gateway.planningConsumptionStatus())['ok'], true);
+    expect((await gateway.setPlanningConsumption(18.5))['ok'], true);
+    expect(params['kwhPer100Km'], 18.5);
+    expect(calls, [
+      'telegramSendStatus',
+      'planningConsumptionStatus',
+      'planningConsumptionSet',
+    ]);
+    const demo = DemoVehicleGateway();
+    expect((await demo.telegramSendCurrentStatus())['error'], 'demo_only');
+    expect((await demo.setPlanningConsumption(18.5))['error'], 'demo_only');
+    expect(calls.length, 3);
+  });
+
   test('diagnostic export is explicit and demo never writes a report', () async {
     final calls = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

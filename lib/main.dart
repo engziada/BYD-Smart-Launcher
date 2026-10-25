@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'core/adb_observation_scope.dart';
 import 'core/adb_stream_recovery.dart';
 import 'core/charging_visual_mode.dart';
+import 'core/planning_range.dart';
 import 'core/vehicle_gateway.dart';
 import 'core/vehicle_snapshot.dart';
 import 'widgets/charging_flow_scene.dart';
@@ -59,7 +60,7 @@ extension LauncherPageInfo on LauncherPage {
   String get label => switch (this) {
     LauncherPage.status => 'Status',
     LauncherPage.blindSpot => 'Blind Spot',
-    LauncherPage.range => 'Real Range',
+    LauncherPage.range => 'Range Planner',
     LauncherPage.automations => 'Automations',
     LauncherPage.telegram => 'Telegram',
     LauncherPage.controls => 'Controls',
@@ -101,6 +102,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   int _tgPending = 0;
   String _tgMessage = 'No bot credentials are uploaded to GitHub.';
   final _batteryCapacity = TextEditingController();
+  final _planningSoc = TextEditingController();
+  final _planningConsumption = TextEditingController();
+  double? _planRangeKm;
+  String _planRangeOrigin = 'Enter values to calculate a planning estimate.';
   bool _rangeBusy = false;
   Map<Object?, Object?> _rangeCandidate = {};
   StreamSubscription<Map<Object?, Object?>>? _nativeStreamSubscription;
@@ -130,6 +135,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     _connect();
     _loadTelegramStatus();
     _loadCapacityStatus();
+    _loadPlanningConsumption();
     _loadAutomationStatus();
   }
 
@@ -567,6 +573,113 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   }
 
 
+  Future<void> _loadPlanningConsumption() async {
+    final info = await _gateway.planningConsumptionStatus();
+    final avg = info['averageKwhPer100Km'];
+    if (mounted && avg is num) {
+      setState(() => _planningConsumption.text = avg.toStringAsFixed(1));
+    }
+  }
+
+  Future<void> _savePlanningConsumption() async {
+    if (_rangeBusy || _demo) return;
+    final raw = _planningConsumption.text.trim();
+    final avg = raw.isEmpty ? null : double.tryParse(raw);
+    if (raw.isNotEmpty &&
+        (avg == null || !avg.isFinite || avg < 5 || avg > 45)) {
+      setState(() => _planRangeOrigin =
+          'Enter an average consumption between 5–45 kWh/100 km.');
+      return;
+    }
+    setState(() => _rangeBusy = true);
+    try {
+      final result = await _gateway.setPlanningConsumption(avg);
+      if (!mounted) return;
+      setState(() => _planRangeOrigin = result['ok'] == true
+          ? 'Your consumption assumption is saved locally, not measured by BYD.'
+          : 'Save failed: ${result['error'] ?? 'unknown'}');
+    } finally {
+      if (mounted) setState(() => _rangeBusy = false);
+    }
+  }
+
+  void _calculatePlanningRange() {
+    final candidate = _rangeCandidate['socCandidatePercent'];
+    final freshness = _dashboardSampledAt == null
+        ? null
+        : DateTime.now().difference(_dashboardSampledAt!);
+    final hasFreshVehicleSoc = !_demo &&
+        _rangeCandidate['ok'] == true &&
+        _rangeCandidate['catalogMatched'] == true &&
+        candidate is num &&
+        freshness != null &&
+        !freshness.isNegative &&
+        freshness.inSeconds <= 15;
+    final manualSoc = double.tryParse(_planningSoc.text.trim());
+    final num? soc = hasFreshVehicleSoc ? candidate : manualSoc;
+    final result = calculatePlanningRange(
+      socPercent: soc,
+      usableCapacityKwh: double.tryParse(_batteryCapacity.text.trim()),
+      averageKwhPer100Km: double.tryParse(_planningConsumption.text.trim()),
+    );
+    setState(() {
+      _planRangeKm = result?.rangeKm;
+      _planRangeOrigin = result == null
+          ? 'Enter a current SOC (0–100%), battery capacity (5–200 kWh) '
+            'and average consumption (5–45 kWh/100 km).'
+          : 'Planning estimate only • SOC: '
+            '${hasFreshVehicleSoc ? 'fresh car read candidate' : 'user entered'} '
+            '• Capacity and consumption: user provided • '
+            'not measured BMS Real Range.';
+    });
+  }
+
+  Future<void> _confirmManualStatus() async {
+    if (_tgBusy || _demo || !_tgConfigured) return;
+    final sample = _rangeCandidate;
+    final soc = sample['socCandidatePercent'];
+    final odo = sample['odometerCandidateKm'];
+    final age = _dashboardSampledAt == null
+        ? null : DateTime.now().difference(_dashboardSampledAt!);
+    final fresh = _dashboardEnabled &&
+        sample['streamState'] == 'candidate' &&
+        sample['catalogMatched'] == true &&
+        soc is num && odo is num && age != null &&
+        !age.isNegative && age.inSeconds <= 15;
+    if (!fresh) {
+      setState(() => _tgMessage =
+          'Start the live read-only stream on Status and wait for a fresh '
+          'SOC/odometer sample before sending.');
+      return;
+    }
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Send current vehicle status?'),
+        content: Text(
+          'Send a private Telegram message to your configured chat with '
+          'SOC ${soc.toStringAsFixed(0)}% and odometer '
+          '${odo.toStringAsFixed(1)} km?\\n\\n'
+          'These are fresh, read-only candidate values, not independently '
+          'OEM-certified. Nothing is sent automatically.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Send once'),
+          ),
+        ],
+      ),
+    );
+    if (approved == true && mounted) {
+      await _telegramAction('status');
+    }
+  }
+
   /// Explicit one-shot dashboard read without an energy-counter dependency.
   Future<void> _sampleDashboardOnce() async {
     if (_dashboardEnabled) {
@@ -657,6 +770,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         'clear' => await _gateway.telegramClear(),
         'retry' => await _gateway.telegramRetry(),
         'dropQueue' => await _gateway.telegramClearPending(),
+        'status' => await _gateway.telegramSendCurrentStatus(),
         _ => await _gateway.telegramSendTest(),
       };
       final status = await _gateway.telegramStatus();
@@ -671,9 +785,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                       ? 'Bot configuration cleared.'
                       : action == 'dropQueue'
                           ? 'Pending tests removed.'
-                          : result['sent'] == false
-                              ? 'No pending messages to retry.'
-                              : 'Test message confirmed by Telegram.')
+                          : action == 'status'
+                              ? 'Current car-status message accepted by Telegram.'
+                              : result['sent'] == false
+                                  ? 'No pending messages to retry.'
+                                  : 'Test message confirmed by Telegram.')
               : 'Telegram: ${result['error'] ?? 'operation_failed'}${_tgPending > 0 ? ' (pending: $_tgPending)' : ''}';
         });
         if (action == 'save' && result['ok'] == true) {
@@ -704,6 +820,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     _tgToken.dispose();
     _tgChat.dispose();
     _batteryCapacity.dispose();
+    _planningSoc.dispose();
+    _planningConsumption.dispose();
     _socRuleThreshold.dispose();
     _subscription?.cancel();
     _gateway.dispose();
@@ -786,8 +904,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           previewRequested: _chargeDesignPreview,
           chargingDiagnostic: _chargingCandidate,
         );
-        return _section('Native telemetry — P2 technical preview',
-            'Firmware-gated 5-second stream • SOC/mileage candidates • not OEM-certified', [
+        return _section('Vehicle overview',
+            'BYD Song Plus • read-only car data • clear source labels • no vehicle commands', [
           if (!_demo)
             Wrap(spacing: 12, runSpacing: 8, children: [
               FilledButton.icon(
@@ -838,19 +956,19 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             onChanged: (value) =>
                 setState(() => _chargeDesignPreview = value),
           ),
-          _info(_demo ? 'DEMO — synthetic readings' : 'Native read-only candidate telemetry',
+          _info(_demo ? 'DEMO — synthetic readings' : 'Vehicle data — read-only connection',
               _demo
                   ? 'No car connection, updates, or commands in demo mode.'
                   : 'SOC/odometer use the firmware-discovered FIDs; stream stops on stale data. '
                     'No vehicle writes, camera access, or automatic Telegram dispatch.',
               Icons.dashboard_outlined),
           Row(children: [
-            _metric(_demo ? 'Battery • DEMO' : 'Battery • candidate',
+            _metric(_demo ? 'Battery • DEMO' : 'Battery • car read',
                 _demo
                     ? _value(_snapshot.socPercent, '%')
                     : _candidateValue('socCandidatePercent', '%', precision: 0),
                 Icons.battery_full_outlined),
-            _metric(_demo ? 'Speed • DEMO' : 'Odometer • candidate',
+            _metric(_demo ? 'Speed • DEMO' : 'Odometer • car read',
                 _demo
                     ? _value(_snapshot.speedKmh, ' km/h')
                     : _candidateValue('odometerCandidateKm', 'km'),
@@ -880,8 +998,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 'BMS ${_chargingCandidate['bmsPhaseCandidate'] ?? 'unknown'} • '
                 'No charge-complete alerts',
                 Icons.ev_station_outlined),
-          _info('Blind-spot camera: not yet integrated',
-              'OEM reverse/360 camera remains in control; no overlay activated',
+          _info('Blind-spot camera: requires OEM integration',
+              'Factory reverse/360 remains available. No camera surface claimed.',
               Icons.videocam_off_outlined),
         ]);
       case LauncherPage.blindSpot:
@@ -894,47 +1012,84 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               'persistent window positioning, and no interference with OEM cameras.'),
         ]);
       case LauncherPage.range:
-        return _section('Real range — diagnostic candidate',
-            'Unverified counter units and consumption • rely on original BYD instruments', [
-          _info('Unverified vehicle readings',
-              'Only explicit sampling. No background monitoring or car controls.',
-              Icons.warning_amber_outlined),
-          Row(children: [
-            _metric('SOC candidate', _candidateValue('socCandidatePercent', '%'), Icons.battery_full_outlined),
-            _metric('Consumption', _candidateValue('consumptionCandidateKwhPer100km', 'kWh/100km'), Icons.bolt),
-            _metric('Range candidate', _candidateValue('rangeCandidateKm', 'km'), Icons.route_outlined),
-          ]),
-          Row(children: [
-            _metric('Odometer candidate', _candidateValue('odometerCandidateKm', 'km'), Icons.speed),
-            _metric('Energy counter · units unknown',
-                _candidateValue('energyCandidateKwh', 'raw'),
-                Icons.electric_bolt_outlined),
-            _metric('Distance window', _candidateValue('windowDistanceKm', 'km'), Icons.route),
-          ]),
+        return _section('Range Planner — usable now',
+            'Calculate from your battery and consumption assumptions. Not BMS-measured Real Range.', [
+          _info('Trip planning calculator',
+              'Use the fresh SOC read from your car when available, otherwise enter '
+              'SOC manually. Your battery capacity and average consumption are '
+              'always user-entered assumptions — no invented BMS values.',
+              Icons.route_outlined),
+          if (_planRangeKm != null)
+            _info('Planning estimate: ${_planRangeKm!.toStringAsFixed(0)} km',
+                _planRangeOrigin, Icons.route_outlined),
+          TextField(
+            controller: _planningSoc,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Current SOC (%) — enter when live car SOC is unavailable',
+              helperText: 'The planner prefers a fresh read-only car SOC sample, if present.',
+              prefixIcon: Icon(Icons.battery_charging_full_outlined),
+            ),
+          ),
           TextField(
             controller: _batteryCapacity,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(
-              labelText: 'Usable battery capacity (kWh) — enter YOUR verified value',
-              helperText: 'No assumed battery capacity. Clear and save to remove.',
+              labelText: 'Usable battery capacity (kWh) — user provided',
+              helperText: '5–200 kWh. Not inferred from vehicle model.',
+              prefixIcon: Icon(Icons.battery_full_outlined),
+            ),
+          ),
+          TextField(
+            controller: _planningConsumption,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Your average consumption (kWh/100 km)',
+              helperText: '5–45. Use your verified trip average; not measured by this app.',
+              prefixIcon: Icon(Icons.bolt_outlined),
             ),
           ),
           Wrap(spacing: 12, runSpacing: 10, children: [
             FilledButton.icon(
-              onPressed: (_rangeBusy || _demo) ? null : _sampleTelemetry,
-              icon: const Icon(Icons.sensors_outlined),
-              label: const Text('Sample vehicle counters'),
+              onPressed: _calculatePlanningRange,
+              icon: const Icon(Icons.calculate_outlined),
+              label: const Text('Calculate estimated km'),
             ),
             OutlinedButton.icon(
               onPressed: (_rangeBusy || _demo) ? null : _saveCapacity,
               icon: const Icon(Icons.save_outlined),
               label: const Text('Save capacity'),
             ),
+            OutlinedButton.icon(
+              onPressed: (_rangeBusy || _demo) ? null : _savePlanningConsumption,
+              icon: const Icon(Icons.save_as_outlined),
+              label: const Text('Save consumption'),
+            ),
           ]),
           if (_rangeBusy) const LinearProgressIndicator(),
+          Text(_planRangeOrigin),
+          const Divider(),
+          _info('Actual BMS Real Range — integration pending',
+              'Driving-only energy units and charge exclusion are not yet '
+              'verified on this Song Plus. Do not confuse the planner with '
+              'a vehicle-measured range instrument.',
+              Icons.info_outline),
+          Row(children: [
+            _metric('Car SOC • candidate',
+                _candidateValue('socCandidatePercent', '%'),
+                Icons.battery_full_outlined),
+            _metric('Odometer • candidate',
+                _candidateValue('odometerCandidateKm', 'km'),
+                Icons.speed_outlined),
+            _metric('Measured BMS range', '—', Icons.route_outlined),
+          ]),
+          OutlinedButton.icon(
+            onPressed: (_rangeBusy || _demo || _dashboardEnabled)
+                ? null : _sampleTelemetry,
+            icon: const Icon(Icons.sensors_outlined),
+            label: const Text('Refresh raw car data (read-only)'),
+          ),
           Text(_rangeMessage),
-          const Text('Consumption needs multiple readings at least 1 km apart. '
-              'Never treat these candidates as confirmed live vehicle data.'),
         ]);
       case LauncherPage.automations:
         return _section('Automations — local rule drafts',
@@ -1003,10 +1158,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         ]);
       case LauncherPage.telegram:
         return _section('Telegram bot',
-            'Encrypted local bot settings • power-state notifications are not yet enabled', [
+            'Encrypted credentials • genuine manual status • no automatic alerts', [
           _info(
             _tgConfigured ? 'Bot credentials saved' : 'Bot not configured',
-            'Manual test messages only. No car events are transmitted in this build.',
+            'Owner-confirmed private car status supported from fresh read-only SOC/odometer. '
+            'No automatic vehicle alerts.',
             _tgConfigured ? Icons.lock_outline : Icons.send_outlined,
           ),
           TextField(
@@ -1039,6 +1195,12 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               ),
               OutlinedButton.icon(
                 onPressed: _tgBusy || _demo || !_tgConfigured
+                    ? null : _confirmManualStatus,
+                icon: const Icon(Icons.directions_car_outlined),
+                label: const Text('Send current car status'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _tgBusy || _demo || !_tgConfigured
                     ? null : () => _telegramAction('test'),
                 icon: const Icon(Icons.send_outlined),
                 label: const Text('Send test message'),
@@ -1068,18 +1230,20 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ]),
           Text(_tgMessage),
           if (_tgBusy) const LinearProgressIndicator(),
-          const Text('Test messages are stored before sending, with explicit manual retry. '
-              'Delivery is at-least-once (duplicates may occur after a crash). '
-              'Car ON/OFF messages and background retries remain disabled until DiLink validation.'),
+          const Text('Manually confirmed fresh car status sends once; no queued '
+              'or automatic retry of private readings. Diagnostic TEST messages '
+              'have manual retry. ON/OFF alerts remain disabled pending verification.'),
         ]);
       case LauncherPage.controls:
-        return _section('Vehicle controls', 'Safety gated; no write API yet', [
+        return _section('Vehicle controls', 'Not available until this firmware grants verified, safely gated write access', [
           _info('Commands unavailable',
               'Car firmware must be verified. Only allowlisted comfort commands '
               'with safe conditions and confirmation may be enabled.',
               Icons.shield_outlined),
-          const Text('Planned: climate, windows and supported comfort options. '
-              'Driving and safety-critical systems remain out of scope.'),
+          const Text('Climate, windows and comfort commands need a verified '
+              'BYD control API, proven parked-state inputs and readback. '
+              'Buttons that only simulate control are deliberately not presented '
+              'as live vehicle features.'),
         ]);
       case LauncherPage.settings:
         return _section('Settings & diagnostics',

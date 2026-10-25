@@ -56,7 +56,7 @@ void main() {
 
     await tester.pumpWidget(const LauncherApp());
     await tester.pump();
-    expect(find.text('Native telemetry — P2 technical preview'), findsOneWidget);
+    expect(find.text('Vehicle overview'), findsOneWidget);
     expect(find.text('Start native read-only stream'), findsOneWidget);
     expect(calls, isNot(contains('nativeCandidateStreamStart')));
     expect(calls, isNot(contains('dashboardSample')));

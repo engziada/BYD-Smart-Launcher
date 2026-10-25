@@ -97,6 +97,39 @@ internal class SafeAdbTransport(context: Context) {
     }
 
     /**
+     * Persist the USER'S own consumption assumption for practical trip planning.
+     * It is never labelled measured/BMS-verified and never used for vehicle
+     * actions. Does not query ADB, vendor APIs or the vehicle.
+     */
+    @Synchronized
+    fun planningConsumptionSet(kwhPer100Km: Double?): Map<String, Any?> {
+        if (kwhPer100Km == null) {
+            preferences.edit().remove("planning_consumption_kwh_per100km").apply()
+            return planningConsumptionStatus()
+        }
+        if (!kwhPer100Km.isFinite() || kwhPer100Km !in 5.0..45.0) {
+            return mapOf("ok" to false, "error" to "invalid_consumption")
+        }
+        preferences.edit().putFloat(
+            "planning_consumption_kwh_per100km", kwhPer100Km.toFloat()
+        ).apply()
+        return planningConsumptionStatus()
+    }
+
+    fun planningConsumptionStatus(): Map<String, Any?> {
+        val key = "planning_consumption_kwh_per100km"
+        val amount = if (preferences.contains(key))
+            preferences.getFloat(key, 0f).toDouble() else null
+        return mapOf(
+            "ok" to true,
+            "averageKwhPer100Km" to amount,
+            "source" to "operator_input_not_measured",
+            "measuredConsumption" to false,
+            "firmwareVerified" to false
+        )
+    }
+
+    /**
      * P2: operator-invoked, read-only, firmware-derived FID handshake.
      *
      * The public BYDMate Song Plus fixture differs from this owner's actual
