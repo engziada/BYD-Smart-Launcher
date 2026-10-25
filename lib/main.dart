@@ -820,6 +820,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 label: const Text('Probe raw speed & gear once'),
               ),
             ]),
+          if (!_demo)
+            Text(_dashboardNotice),
           ChargingFlowScene(
             previewEnabled: flowMode == ChargingVisualMode.designPreview,
             socCandidate: _demo
@@ -859,8 +861,6 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ]),
           if (!_demo && socValue != null)
             LinearProgressIndicator(value: socValue),
-          if (!_demo)
-            Text(_dashboardNotice),
           if (!_demo && _dashboardSampledAt != null)
             Text('Last ${_rangeCandidate['streamState'] == 'candidate' ? 'native' : 'manual'} sample: '
                  '${TimeOfDay.fromDateTime(_dashboardSampledAt!).format(context)} '
