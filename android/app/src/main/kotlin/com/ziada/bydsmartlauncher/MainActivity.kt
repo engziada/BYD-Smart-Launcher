@@ -108,6 +108,12 @@ class MainActivity : FlutterActivity() {
                         val value = call.argument<Number>("kwh")?.toDouble()
                         result.success(adb.configureCapacity(value))
                     }
+                    "planningConsumptionStatus" ->
+                        result.success(adb.planningConsumptionStatus())
+                    "planningConsumptionSet" -> {
+                        val value = call.argument<Number>("kwhPer100Km")?.toDouble()
+                        result.success(adb.planningConsumptionSet(value))
+                    }
                     "telegramSendStatus" -> {
                         // Snapshot the accepted stream state on the main thread.
                         val active = candidateStream.currentStatus()["streamState"] == "candidate"
