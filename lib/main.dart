@@ -616,7 +616,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         !freshness.isNegative &&
         freshness.inSeconds <= 15;
     final manualSoc = double.tryParse(_planningSoc.text.trim());
-    final num? soc = hasFreshVehicleSoc && candidate is num ? candidate : manualSoc;
+    final num? soc = hasFreshVehicleSoc ? candidate : manualSoc;
     final result = calculatePlanningRange(
       socPercent: soc,
       usableCapacityKwh: double.tryParse(_batteryCapacity.text.trim()),
@@ -658,8 +658,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         title: const Text('Send current vehicle status?'),
         content: Text(
           'Send a private Telegram message to your configured chat with '
-          'SOC ${(soc as num).toStringAsFixed(0)}% and odometer '
-          '${(odo as num).toStringAsFixed(1)} km?\\n\\n'
+          'SOC ${soc.toStringAsFixed(0)}% and odometer '
+          '${odo.toStringAsFixed(1)} km?\\n\\n'
           'These are fresh, read-only candidate values, not independently '
           'OEM-certified. Nothing is sent automatically.',
         ),
