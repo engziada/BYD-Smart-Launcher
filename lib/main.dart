@@ -770,6 +770,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         'clear' => await _gateway.telegramClear(),
         'retry' => await _gateway.telegramRetry(),
         'dropQueue' => await _gateway.telegramClearPending(),
+        'status' => await _gateway.telegramSendCurrentStatus(),
         _ => await _gateway.telegramSendTest(),
       };
       final status = await _gateway.telegramStatus();
@@ -784,9 +785,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                       ? 'Bot configuration cleared.'
                       : action == 'dropQueue'
                           ? 'Pending tests removed.'
-                          : result['sent'] == false
-                              ? 'No pending messages to retry.'
-                              : 'Test message confirmed by Telegram.')
+                          : action == 'status'
+                              ? 'Current car-status message accepted by Telegram.'
+                              : result['sent'] == false
+                                  ? 'No pending messages to retry.'
+                                  : 'Test message confirmed by Telegram.')
               : 'Telegram: ${result['error'] ?? 'operation_failed'}${_tgPending > 0 ? ' (pending: $_tgPending)' : ''}';
         });
         if (action == 'save' && result['ok'] == true) {
@@ -1118,10 +1121,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         ]);
       case LauncherPage.telegram:
         return _section('Telegram bot',
-            'Encrypted local bot settings • power-state notifications are not yet enabled', [
+            'Encrypted credentials • genuine manual status • no automatic alerts', [
           _info(
             _tgConfigured ? 'Bot credentials saved' : 'Bot not configured',
-            'Manual test messages only. No car events are transmitted in this build.',
+            'Owner-confirmed private car status supported from fresh read-only SOC/odometer. '
+            'No automatic vehicle alerts.',
             _tgConfigured ? Icons.lock_outline : Icons.send_outlined,
           ),
           TextField(
@@ -1154,6 +1158,12 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               ),
               OutlinedButton.icon(
                 onPressed: _tgBusy || _demo || !_tgConfigured
+                    ? null : _confirmManualStatus,
+                icon: const Icon(Icons.directions_car_outlined),
+                label: const Text('Send current car status'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _tgBusy || _demo || !_tgConfigured
                     ? null : () => _telegramAction('test'),
                 icon: const Icon(Icons.send_outlined),
                 label: const Text('Send test message'),
@@ -1183,9 +1193,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ]),
           Text(_tgMessage),
           if (_tgBusy) const LinearProgressIndicator(),
-          const Text('Test messages are stored before sending, with explicit manual retry. '
-              'Delivery is at-least-once (duplicates may occur after a crash). '
-              'Car ON/OFF messages and background retries remain disabled until DiLink validation.'),
+          const Text('Manually confirmed fresh car status sends once; no queued '
+              'or automatic retry of private readings. Diagnostic TEST messages '
+              'have manual retry. ON/OFF alerts remain disabled pending verification.'),
         ]);
       case LauncherPage.controls:
         return _section('Vehicle controls', 'Safety gated; no write API yet', [
