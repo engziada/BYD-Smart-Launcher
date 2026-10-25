@@ -3,7 +3,7 @@
 Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025** head unit.
 
 ## Current status
-**v0.3.2+6 — Technical Preview, not an accepted functional MVP.** The app has an explicit on-device ADB RSA/TLS connection, read-only SOC/odometer candidate sampling, firmware FID discovery, and a **native foreground 5-second candidate event stream** with explicit Start/Stop, strict firmware-address matching, stale-data suppression, **manual raw speed/gear GET-only probes**, idempotent ADB session reuse, first-stop-reason retention and schema-6 sanitized diagnostics. The owner confirmed some SOC/odometer readings against the stock BYD interface; this does **not** validate a live telemetry stream, native helper, vehicle writes, real range, OEM camera pipeline or Telegram automatic events. Unavailable values are not fabricated.
+**v0.3.3+7 — Technical Preview, not an accepted functional MVP.** The app has an explicit on-device ADB RSA/TLS connection, read-only SOC/odometer candidate sampling, firmware FID discovery, and a **native foreground 5-second candidate event stream** with explicit Start/Stop, strict firmware-address matching, stale-data suppression, **manual raw speed/gear GET-only probes**, idempotent ADB session reuse, one bounded foreground reconnect after unexpected ADB loss, first-stop-reason retention and schema-6 sanitized diagnostics. The Status page also features an **original Flutter-drawn vehicle with a manual green charging-cable animation**; this is strictly labelled a DESIGN PREVIEW and is never activated automatically from unverified charging FIDs. The owner confirmed some SOC/odometer readings against the stock BYD interface; this does **not** validate a live telemetry stream, native helper, vehicle writes, real range, OEM camera pipeline or Telegram automatic events. Unavailable values are not fabricated.
 
 ## Current implementation priorities (owner revised 2026-10-21)
 1. **Recheck parent-project references, SDKs, APIs and ADB commands** — BYDMate and Kinex. Record exactly which source and version supports each API, and which capabilities are verified for the owner's DiLink 5.0 OS 2602.
@@ -15,7 +15,9 @@ Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025*
 
 **Automations are deferred after these six priorities.** Previous Blind-Spot-first / Telegram-before-controls plans are superseded. Phone and Android Auto remain out of scope.
 
-**Next parked on-car checks:** [Native candidate stream acceptance](docs/p2-native-stream-acceptance.md). This does not install a persistent helper or enable real vehicle controls.\n\n**Canonical execution source:** [docs/implementation-plan.md](docs/implementation-plan.md), [parent API/SDK/ADB audit](docs/parent-project-api-adb-audit.md) and [MVP acceptance](docs/mvp-scope.md). Historical issue numbers don't represent the new priority ranking.
+**Next parked on-car checks:** [ADB recovery and charging-flow visual acceptance](docs/v033-recovery-charging-visual-acceptance.md), then [Native candidate stream acceptance](docs/p2-native-stream-acceptance.md). This does not install a persistent helper or enable real vehicle controls.
+
+**Canonical execution source:** [docs/implementation-plan.md](docs/implementation-plan.md), [parent API/SDK/ADB audit](docs/parent-project-api-adb-audit.md) and [MVP acceptance](docs/mvp-scope.md). Historical issue numbers don't represent the new priority ranking.
 
 ## Approach
 - Flutter UI, Kotlin Android platform bridge, Kotlin vehicle modules.
