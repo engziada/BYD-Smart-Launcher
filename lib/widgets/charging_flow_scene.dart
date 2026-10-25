@@ -41,8 +41,9 @@ class _ChargingFlowSceneState extends State<ChargingFlowScene>
       if (widget.previewEnabled) {
         _flow.repeat();
       } else {
+        // Stopping the ticker is enough: avoid notifying AnimatedBuilder
+        // synchronously during a parent build when the preview is switched off.
         _flow.stop();
-        _flow.value = 0;
       }
     }
   }
