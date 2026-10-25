@@ -1012,47 +1012,84 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               'persistent window positioning, and no interference with OEM cameras.'),
         ]);
       case LauncherPage.range:
-        return _section('Real range — diagnostic candidate',
-            'Unverified counter units and consumption • rely on original BYD instruments', [
-          _info('Unverified vehicle readings',
-              'Only explicit sampling. No background monitoring or car controls.',
-              Icons.warning_amber_outlined),
-          Row(children: [
-            _metric('SOC candidate', _candidateValue('socCandidatePercent', '%'), Icons.battery_full_outlined),
-            _metric('Consumption', _candidateValue('consumptionCandidateKwhPer100km', 'kWh/100km'), Icons.bolt),
-            _metric('Range candidate', _candidateValue('rangeCandidateKm', 'km'), Icons.route_outlined),
-          ]),
-          Row(children: [
-            _metric('Odometer candidate', _candidateValue('odometerCandidateKm', 'km'), Icons.speed),
-            _metric('Energy counter · units unknown',
-                _candidateValue('energyCandidateKwh', 'raw'),
-                Icons.electric_bolt_outlined),
-            _metric('Distance window', _candidateValue('windowDistanceKm', 'km'), Icons.route),
-          ]),
+        return _section('Range Planner — usable now',
+            'Calculate from your battery and consumption assumptions. Not BMS-measured Real Range.', [
+          _info('Trip planning calculator',
+              'Use the fresh SOC read from your car when available, otherwise enter '
+              'SOC manually. Your battery capacity and average consumption are '
+              'always user-entered assumptions — no invented BMS values.',
+              Icons.route_outlined),
+          if (_planRangeKm != null)
+            _info('Planning estimate: ${_planRangeKm!.toStringAsFixed(0)} km',
+                _planRangeOrigin, Icons.route_outlined),
+          TextField(
+            controller: _planningSoc,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Current SOC (%) — enter when live car SOC is unavailable',
+              helperText: 'The planner prefers a fresh read-only car SOC sample, if present.',
+              prefixIcon: Icon(Icons.battery_charging_full_outlined),
+            ),
+          ),
           TextField(
             controller: _batteryCapacity,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(
-              labelText: 'Usable battery capacity (kWh) — enter YOUR verified value',
-              helperText: 'No assumed battery capacity. Clear and save to remove.',
+              labelText: 'Usable battery capacity (kWh) — user provided',
+              helperText: '5–200 kWh. Not inferred from vehicle model.',
+              prefixIcon: Icon(Icons.battery_full_outlined),
+            ),
+          ),
+          TextField(
+            controller: _planningConsumption,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Your average consumption (kWh/100 km)',
+              helperText: '5–45. Use your verified trip average; not measured by this app.',
+              prefixIcon: Icon(Icons.bolt_outlined),
             ),
           ),
           Wrap(spacing: 12, runSpacing: 10, children: [
             FilledButton.icon(
-              onPressed: (_rangeBusy || _demo) ? null : _sampleTelemetry,
-              icon: const Icon(Icons.sensors_outlined),
-              label: const Text('Sample vehicle counters'),
+              onPressed: _calculatePlanningRange,
+              icon: const Icon(Icons.calculate_outlined),
+              label: const Text('Calculate estimated km'),
             ),
             OutlinedButton.icon(
               onPressed: (_rangeBusy || _demo) ? null : _saveCapacity,
               icon: const Icon(Icons.save_outlined),
               label: const Text('Save capacity'),
             ),
+            OutlinedButton.icon(
+              onPressed: (_rangeBusy || _demo) ? null : _savePlanningConsumption,
+              icon: const Icon(Icons.save_as_outlined),
+              label: const Text('Save consumption'),
+            ),
           ]),
           if (_rangeBusy) const LinearProgressIndicator(),
+          Text(_planRangeOrigin),
+          const Divider(),
+          _info('Actual BMS Real Range — integration pending',
+              'Driving-only energy units and charge exclusion are not yet '
+              'verified on this Song Plus. Do not confuse the planner with '
+              'a vehicle-measured range instrument.',
+              Icons.info_outline),
+          Row(children: [
+            _metric('Car SOC • candidate',
+                _candidateValue('socCandidatePercent', '%'),
+                Icons.battery_full_outlined),
+            _metric('Odometer • candidate',
+                _candidateValue('odometerCandidateKm', 'km'),
+                Icons.speed_outlined),
+            _metric('Measured BMS range', '—', Icons.route_outlined),
+          ]),
+          OutlinedButton.icon(
+            onPressed: (_rangeBusy || _demo || _dashboardEnabled)
+                ? null : _sampleTelemetry,
+            icon: const Icon(Icons.sensors_outlined),
+            label: const Text('Refresh raw car data (read-only)'),
+          ),
           Text(_rangeMessage),
-          const Text('Consumption needs multiple readings at least 1 km apart. '
-              'Never treat these candidates as confirmed live vehicle data.'),
         ]);
       case LauncherPage.automations:
         return _section('Automations — local rule drafts',
