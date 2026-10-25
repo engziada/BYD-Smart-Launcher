@@ -788,6 +788,38 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         );
         return _section('Native telemetry — P2 technical preview',
             'Firmware-gated 5-second stream • SOC/mileage candidates • not OEM-certified', [
+          if (!_demo)
+            Wrap(spacing: 12, runSpacing: 8, children: [
+              FilledButton.icon(
+                onPressed: _dashboardStarting || _adbBusy
+                    ? null : _dashboardEnabled
+                        ? () => _stopDashboard()
+                        : _startDashboard,
+                icon: Icon(_dashboardEnabled ? Icons.stop_circle_outlined
+                    : Icons.play_circle_outline),
+                label: Text(_dashboardStarting ? 'Connecting…'
+                    : _dashboardEnabled ? 'Stop updates'
+                    : 'Start native read-only stream'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _rangeBusy || _dashboardStarting || _dashboardEnabled
+                    ? null : _sampleDashboardOnce,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Read once'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _dashboardStarting)
+                    ? null : () => _adbAction('charging'),
+                icon: const Icon(Icons.ev_station_outlined),
+                label: const Text('Charging diagnostic once'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _dashboardStarting || _dashboardEnabled)
+                    ? null : () => _adbAction('motion'),
+                icon: const Icon(Icons.speed_outlined),
+                label: const Text('Probe raw speed & gear once'),
+              ),
+            ]),
           ChargingFlowScene(
             previewEnabled: flowMode == ChargingVisualMode.designPreview,
             socCandidate: _demo
@@ -833,38 +865,6 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             Text('Last ${_rangeCandidate['streamState'] == 'candidate' ? 'native' : 'manual'} sample: '
                  '${TimeOfDay.fromDateTime(_dashboardSampledAt!).format(context)} '
                  '• ${_dashboardEnabled ? 'native stream ON' : 'updates STOPPED'}'),
-          if (!_demo)
-            Wrap(spacing: 12, runSpacing: 8, children: [
-              FilledButton.icon(
-                onPressed: _dashboardStarting || _adbBusy
-                    ? null : _dashboardEnabled
-                        ? () => _stopDashboard()
-                        : _startDashboard,
-                icon: Icon(_dashboardEnabled ? Icons.stop_circle_outlined
-                    : Icons.play_circle_outline),
-                label: Text(_dashboardStarting ? 'Connecting…'
-                    : _dashboardEnabled ? 'Stop updates'
-                    : 'Start native read-only stream'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _rangeBusy || _dashboardStarting || _dashboardEnabled
-                    ? null : _sampleDashboardOnce,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Read once'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _dashboardStarting)
-                    ? null : () => _adbAction('charging'),
-                icon: const Icon(Icons.ev_station_outlined),
-                label: const Text('Charging diagnostic once'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _dashboardStarting || _dashboardEnabled)
-                    ? null : () => _adbAction('motion'),
-                icon: const Icon(Icons.speed_outlined),
-                label: const Text('Probe raw speed & gear once'),
-              ),
-            ]),
           if (_rangeBusy || _dashboardStarting)
             const LinearProgressIndicator(),
           if (!_demo && _motionCandidate.isNotEmpty)
