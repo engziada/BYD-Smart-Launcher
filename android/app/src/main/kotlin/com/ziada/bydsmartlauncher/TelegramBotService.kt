@@ -116,6 +116,26 @@ internal class TelegramBotService(context: Context) {
         return retryPending()
     }
 
+    /**
+     * Actual private Telegram API transmission, initiated from a separate UI
+     * confirmation every time. Snapshot is checked immediately before send,
+     * and must be native-stream-recent; no automatic vehicle event subscription.
+     * Status sends are intentionally NOT queued: offline failure requires an
+     * explicit fresh reading and new owner confirmation, never a stale retry.
+     */
+    @Synchronized
+    fun sendManualStatus(sample: Map<String, Any?>, nowEpochMs: Long): Map<String, Any?> {
+        val text = ManualStatusPolicy.message(sample, nowEpochMs)
+            ?: return mapOf("ok" to false, "sent" to false, "error" to "fresh_car_status_required")
+        val credentials = read()
+            ?: return mapOf("ok" to false, "sent" to false, "error" to "not_configured")
+        val error = sendTelegramText(credentials.first, credentials.second, text)
+        return if (error == null)
+            mapOf("ok" to true, "sent" to true, "source" to "explicit_owner_status")
+        else
+            mapOf("ok" to false, "sent" to false, "error" to error)
+    }
+
     @Synchronized
     fun outboxStatus(): Map<String, Any?> = mapOf(
         "ok" to true,
@@ -165,7 +185,11 @@ internal class TelegramBotService(context: Context) {
     }
 
     /** Null on confirmed API success, non-sensitive failure code otherwise. */
-    private fun sendTelegramText(token: String, chatId: String): String? {
+    private fun sendTelegramText(
+        token: String,
+        chatId: String,
+        text: String = "BYD Smart Launcher: Telegram diagnostic test."
+    ): String? {
         var connection: HttpURLConnection? = null
         return try {
             val url = URL("https://api.telegram.org/bot$token/sendMessage")
@@ -177,7 +201,7 @@ internal class TelegramBotService(context: Context) {
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
             val payload = "chat_id=" + URLEncoder.encode(chatId, "UTF-8") +
-                "&text=" + URLEncoder.encode("BYD Smart Launcher: Telegram diagnostic test.", "UTF-8")
+                "&text=" + URLEncoder.encode(text, "UTF-8")
             connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
             val code = connection.responseCode
             if (code != 200) return "telegram_http_$code"
