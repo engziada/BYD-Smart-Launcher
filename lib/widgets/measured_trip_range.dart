@@ -44,7 +44,9 @@ class _MeasuredTripRangeState extends State<MeasuredTripRange> {
     final consumption = _consumption;
     if (soc == null || !soc.isFinite || soc < 0 || soc > 100 ||
         capacity == null || !capacity.isFinite || capacity < 5 ||
-        capacity > 200 || consumption == null) return null;
+        capacity > 200 || consumption == null) {
+      return null;
+    }
     return capacity * soc / consumption;
   }
 
