@@ -1,6 +1,7 @@
 package com.ziada.bydsmartlauncher
 
 import android.content.Context
+import android.os.Build
 import android.os.SystemClock
 import com.bydmate.app.data.autoservice.AdbConnectFailure
 import com.bydmate.app.data.autoservice.AdbKeyStore
@@ -531,29 +532,55 @@ internal class SafeAdbTransport(context: Context) {
     }
 
     @Synchronized
-    fun probeComfortMappings(): Map<String, Any?> {
+    fun probeComfortMappings(selected: ComfortMapping? = null): Map<String, Any?> {
         val active = client?.takeIf { hasConnectedSession() }
             ?: return mapOf("ok" to false, "status" to "adb_not_connected")
         val command = FidReadOnlyDiscovery.command(appContext.packageCodePath)
             ?: return mapOf("ok" to false, "status" to "invalid_apk_path")
         val catalog = FidReadOnlyDiscovery.parse(active.exec(command)).catalog
-        val readings = mutableMapOf<String, Any?>("vehicleWriteAuthorized" to false)
+        val profile = VerifiedComfortProfiles.forFingerprint(Build.FINGERPRINT)
+        val readings = mutableMapOf<String, Any?>()
         for (mapping in ComfortMapping.entries) {
-            val device = if (mapping.featureGroup == "Ac") catalog.deviceOf("AC") else catalog.deviceOf("BODYWORK")
+            if (selected != null && mapping != selected) continue
+            val device = catalog.deviceOf(mapping.deviceGroup)
             val stateFid = catalog.fidOf(mapping.stateSymbol)
             val commandFid = catalog.fidOf(mapping.commandSymbol)
-            val prefix = mapping.name.lowercase(java.util.Locale.ROOT)
+            val prefix = mapping.id
             if (device != null && stateFid != null && commandFid != null && stateFid != commandFid) {
                 val value = CandidateTelemetry.int(active.exec("service call autoservice 5 i32 $device i32 $stateFid"))
                 readings["${prefix}_device"] = device
                 readings["${prefix}_commandFid"] = commandFid
                 readings["${prefix}_readbackFid"] = stateFid
-                readings["${prefix}_state"] = value?.takeIf { it in mapping.range }
+                val reviewed = profile?.address(mapping)?.takeIf {
+                    it.write == VehicleAddress(device, commandFid) &&
+                        it.readback == VehicleAddress(device, stateFid)
+                }
+                val valid = value?.takeIf { it in mapping.range }
+                readings["${prefix}_state"] = if (valid != null && reviewed != null) reviewed.convert(valid) else valid
+                readings["${prefix}_writable"] = reviewed != null && valid != null
             }
         }
-        readings["ok"] = readings.size > 1
+        readings["ok"] = readings.isNotEmpty()
+        readings["vehicleWriteAuthorized"] = readings.any { (key, value) -> key.endsWith("_writable") && value == true }
         readings["status"] = if (readings["ok"] == true) "candidate_mappings_found" else "mappings_unavailable"
         return readings
+    }
+
+    fun comfortWriteAvailable(mapping: ComfortMapping): Boolean =
+        transportState == "connected" && VerifiedComfortProfiles.forFingerprint(Build.FINGERPRINT)?.address(mapping) != null
+
+    @Synchronized
+    fun writeComfort(
+        mapping: ComfortMapping, value: Int, confirmedAtMs: Long, stillForeground: () -> Boolean,
+    ): ComfortWriteResult {
+        val active = client?.takeIf { hasConnectedSession() } ?: return ComfortWriteResult("adb_not_connected")
+        if (!comfortWriteAvailable(mapping)) return ComfortWriteResult("firmware_not_verified")
+        val command = FidReadOnlyDiscovery.comfortWriteCommand(appContext.packageCodePath, mapping, value, confirmedAtMs)
+            ?: return ComfortWriteResult("invalid_value")
+        if (!stillForeground() || SystemClock.elapsedRealtime() - confirmedAtMs !in 0..3_000) {
+            return ComfortWriteResult("confirmation_expired")
+        }
+        return ComfortWriteProtocol.parse(active.exec(command), mapping)
     }
 
     /** Operator-invoked, FIXED read-only property and service liveness checks. */
@@ -566,7 +593,7 @@ internal class SafeAdbTransport(context: Context) {
         val model = FirmwareDiagnostics.property(active.exec("getprop ro.product.model"))
         val manufacturer = FirmwareDiagnostics.property(active.exec("getprop ro.product.manufacturer"))
         val sdk = FirmwareDiagnostics.sdkInt(active.exec("getprop ro.build.version.sdk"))
-        val fingerprint = FirmwareDiagnostics.fingerprintDigest(
+        val fingerprint = FirmwareDiagnostics.fullFingerprintDigest(
             active.exec("getprop ro.build.fingerprint")
         )
         val serviceAvailable = FirmwareDiagnostics.servicePresent(
@@ -577,7 +604,8 @@ internal class SafeAdbTransport(context: Context) {
             "model" to model,
             "manufacturer" to manufacturer,
             "androidSdk" to sdk,
-            "fingerprintHashPrefix" to fingerprint,
+            "fingerprintHashPrefix" to fingerprint?.take(20),
+            "fingerprintSha256" to fingerprint,
             "autoservicePresent" to serviceAvailable,
             "compatibleAndVerified" to false,
             "vehicleWriteAuthorized" to false,

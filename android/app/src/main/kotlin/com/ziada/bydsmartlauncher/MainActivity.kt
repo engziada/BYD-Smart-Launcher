@@ -2,6 +2,8 @@ package com.ziada.bydsmartlauncher
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.content.Intent
 import android.provider.Settings
@@ -17,8 +19,7 @@ import com.ziada.bydsmartlauncher.automation.VerifiedChargeState
 import com.ziada.bydsmartlauncher.automation.VerifiedSignal
 
 /**
- * Native ADB diagnostics + foreground, operator-enabled firmware-gated READ-only candidate
- * stream. No vehicle writes, persistent helper, camera access or verified safety interlocks.
+ * Native ADB diagnostics, candidate telemetry and the foreground comfort control bridge.
  */
 class MainActivity : FlutterActivity() {
     private val worker = Executors.newSingleThreadExecutor()
@@ -46,6 +47,11 @@ class MainActivity : FlutterActivity() {
     @Volatile private var lastMotionSample: Map<String, Any?> = emptyMap()
     @Volatile private var lastOwnerSensors: Map<String, Any?> = emptyMap()
     @Volatile private var lastComfortMappings: Map<String, Any?> = emptyMap()
+    @Volatile private var lastComfortWrite: Map<String, Any?> = emptyMap()
+    @Volatile private var comfortGeneration = 0L
+    private var resumed = false
+    private var comfortDialog: AlertDialog? = null
+    private var comfortWriteInFlight = false
 
     /** Invalidate only EXISTING prior observations, not an empty report section. */
     private fun historical(sample: Map<String, Any?>): Map<String, Any?> =
@@ -100,6 +106,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "demo" -> {
                         voice.setDemo(call.arguments == true)
+                        if (call.arguments == true) cancelComfortConfirmation()
                         result.success(null)
                     }
                     "text" -> {
@@ -134,7 +141,8 @@ class MainActivity : FlutterActivity() {
                                 DiagnosticReportWriter(applicationContext).save(
                                     adb.diagnostics(), lastFirmwareProbe, lastTelemetrySample,
                                     lastFidDiscovery, lastChargingSample,
-                                    candidateStream.currentStatus(), lastMotionSample, lastOwnerSensors, lastComfortMappings
+                                    candidateStream.currentStatus(), lastMotionSample, lastOwnerSensors,
+                                    lastComfortMappings, lastComfortWrite
                                 )
                             } catch (_: Exception) {
                                 mapOf("ok" to false, "error" to "export_failed")
@@ -145,8 +153,15 @@ class MainActivity : FlutterActivity() {
                     "getCapabilities" -> result.success(mapOf(
                         "adb" to (adb.transportState == "connected"),
                         "blindSpot" to false, "telegram" to false,
-                        "automations" to false, "realRange" to false, "controls" to false
+                        "automations" to false, "realRange" to false,
+                        "controls" to ComfortMapping.entries.any(adb::comfortWriteAvailable)
                     ))
+                    "comfortWrite" -> {
+                        val mapping = ComfortMapping.entries.firstOrNull { it.id == call.argument<String>("id") }
+                        val value = call.argument<Any>("value") as? Int
+                        if (mapping == null || value == null) result.success(ComfortWriteResult("invalid_value").asMap())
+                        else confirmComfortWrite(mapping, value, arabic = false) { result.success(it.asMap()) }
+                    }
                     "ownerSensors", "comfortMappings" -> worker.execute {
                         val sensors = call.method == "ownerSensors"
                         val reply = runCatching {
@@ -315,8 +330,45 @@ class MainActivity : FlutterActivity() {
             })
     }
 
-    private fun voiceAnswer(command: VoiceCommand, arabic: Boolean, respond: (String) -> Unit) {
+    private fun voiceAnswer(phrase: String, arabic: Boolean, respond: (String) -> Unit) {
         fun localized(en: String, ar: String) = if (arabic) ar else en
+        val comfort = ComfortVoiceRequest.parse(phrase)
+        if (comfort != null) {
+            val mapping = comfort.mapping
+            val label = if (arabic) mapping.arabicLabel else mapping.label
+            fun requestWrite(value: Int) = confirmComfortWrite(mapping, value, arabic) {
+                respond(when (it.status) {
+                    "confirmed", "already_at_target" -> localized("$label: ${it.readback}.", "$label: ${it.readback}.")
+                    "firmware_not_verified" -> localized("This control needs on-car verification.", "التحكم ده محتاج تحقق على العربية.")
+                    "cancelled" -> localized("Command cancelled.", "تم إلغاء الأمر.")
+                    "write_outcome_unknown", "sent_unconfirmed" -> localized("Check the result on the car.", "راجع النتيجة على شاشة العربية.")
+                    else -> localized("The control request was blocked or refused.", "أمر التحكم ما اتنفذش.")
+                })
+            }
+            val target = comfort.target
+            if (target != null) {
+                requestWrite(target)
+            } else {
+                val generation = comfortGeneration
+                worker.execute {
+                    val readback = runCatching { adb.probeComfortMappings(mapping) }.getOrDefault(emptyMap())
+                    val value = readback["${mapping.id}_state"] as? Int
+                    mainHandler.post {
+                        if (!resumed || generation != comfortGeneration) return@post
+                        when {
+                            value == null -> respond(localized("The control state is unavailable.", "قراءة الحالة غير متاحة."))
+                            comfort.lowerFan && readback["${mapping.id}_writable"] != true -> respond(localized(
+                                "This control needs on-car verification.", "التحكم ده محتاج تحقق على العربية."
+                            ))
+                            comfort.lowerFan && value > mapping.range.first -> requestWrite(value - 1)
+                            else -> respond(localized("$label reading: $value.", "قراءة $label: $value."))
+                        }
+                    }
+                }
+            }
+            return
+        }
+        val command = VoiceCommand.parse(phrase)
         if (command in setOf(VoiceCommand.TYRES, VoiceCommand.CABIN_TEMP, VoiceCommand.OUTSIDE_TEMP)) {
             worker.execute {
                 val data = runCatching { adb.sampleOwnerSensors(includeVehicleCatalog = command != VoiceCommand.TYRES) }
@@ -359,6 +411,76 @@ class MainActivity : FlutterActivity() {
             else -> localized("Try battery level, odometer, or tyre pressure.",
                 "جرّب نسبة البطارية أو قراءة العداد أو ضغط الكاوتش.")
         })
+    }
+
+    private fun confirmComfortWrite(
+        mapping: ComfortMapping, value: Int, arabic: Boolean, reply: (ComfortWriteResult) -> Unit,
+    ) {
+        val blocked = when {
+            !resumed || !voice.canStart -> "foreground_required"
+            comfortDialog != null || comfortWriteInFlight -> "control_busy"
+            value !in mapping.range -> "invalid_value"
+            !adb.comfortWriteAvailable(mapping) -> "firmware_not_verified"
+            else -> null
+        }
+        if (blocked != null) {
+            reply(ComfortWriteResult(blocked))
+            return
+        }
+        var approved = false
+        val label = if (arabic) mapping.arabicLabel else mapping.label
+        val target = when {
+            mapping.isWindow -> if (arabic) "$value% فتح" else "$value% open"
+            mapping == ComfortMapping.AC_TEMPERATURE -> "$value °C"
+            mapping == ComfortMapping.AC_POWER -> if (value == 1) {
+                if (arabic) "تشغيل" else "On"
+            } else if (arabic) "إيقاف" else "Off"
+            else -> value.toString()
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(if (arabic) "تأكيد أمر التحكم" else "Confirm vehicle control")
+            .setMessage(if (arabic) "$label: $target. اتأكد إن العربية في وضع P وإن الحركة آمنة."
+                else "$label: $target. Confirm the car is in Park and the change is safe.")
+            .setNegativeButton(if (arabic) "إلغاء" else "Cancel", null)
+            .setPositiveButton(if (arabic) "تأكيد" else "Confirm") { _, _ ->
+                approved = true
+                val generation = comfortGeneration
+                val confirmedAt = SystemClock.elapsedRealtime()
+                comfortWriteInFlight = true
+                worker.execute {
+                    val outcome = runCatching {
+                        adb.writeComfort(mapping, value, confirmedAt) { generation == comfortGeneration }
+                    }.getOrElse { ComfortWriteResult("write_outcome_unknown") }
+                    lastComfortWrite = outcome.asMap() + mapOf("id" to mapping.id, "atMs" to System.currentTimeMillis())
+                    mainHandler.post {
+                        comfortWriteInFlight = false
+                        reply(outcome)
+                    }
+                }
+            }
+            .create()
+        dialog.setOnDismissListener {
+            if (comfortDialog === dialog) comfortDialog = null
+            if (!approved) reply(ComfortWriteResult("cancelled"))
+        }
+        comfortDialog = dialog
+        dialog.show()
+    }
+
+    private fun cancelComfortConfirmation() {
+        comfortGeneration++
+        comfortDialog?.dismiss()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        resumed = true
+    }
+
+    override fun onPause() {
+        resumed = false
+        cancelComfortConfirmation()
+        super.onPause()
     }
 
     override fun onStart() {

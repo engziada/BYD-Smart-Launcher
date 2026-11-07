@@ -19,7 +19,7 @@ import java.util.Locale
 /** Push-to-talk. Audio is routed only to Android's on-device speech provider. */
 internal class OfflineVoiceAssistant(
     private val activity: Activity,
-    private val answer: (VoiceCommand, Boolean, (String) -> Unit) -> Unit
+    private val answer: (String, Boolean, (String) -> Unit) -> Unit
 ) {
     private val prefs = activity.getSharedPreferences("voice_assistant", Context.MODE_PRIVATE)
     private val handler = Handler(Looper.getMainLooper())
@@ -133,7 +133,7 @@ internal class OfflineVoiceAssistant(
 
     private fun answerCommand(text: String) {
         val token = ++request
-        answer(VoiceCommand.parse(text), arabic) { response ->
+        answer(text, arabic) { response ->
             if (token == request) reply(response)
         }
     }

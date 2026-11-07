@@ -1,6 +1,6 @@
 package com.ziada.bydsmartlauncher
 
-/** Assistant NG symbolic pairs. The launcher only reads state during commissioning. */
+/** Assistant NG symbolic pairs. Reads can be discovered; writes require a reviewed profile. */
 internal enum class ComfortMapping(
     val featureGroup: String,
     val command: String,
@@ -17,4 +17,26 @@ internal enum class ComfortMapping(
 
     val commandSymbol get() = "$featureGroup.$command"
     val stateSymbol get() = "$featureGroup.$state"
+    val deviceGroup get() = if (featureGroup == "Ac") "AC" else "BODYWORK"
+    val deviceType get() = if (featureGroup == "Ac") 1000 else 1001
+    val isWindow get() = featureGroup == "Bodywork"
+    val id get() = name.lowercase(java.util.Locale.ROOT)
+    val label get() = when (this) {
+        AC_POWER -> "A/C power"
+        AC_FAN -> "A/C fan level"
+        AC_TEMPERATURE -> "A/C set temperature"
+        FRONT_LEFT -> "Front left window"
+        FRONT_RIGHT -> "Front right window"
+        REAR_LEFT -> "Rear left window"
+        REAR_RIGHT -> "Rear right window"
+    }
+    val arabicLabel get() = when (this) {
+        AC_POWER -> "تشغيل المكيف"
+        AC_FAN -> "سرعة المروحة"
+        AC_TEMPERATURE -> "درجة حرارة المكيف"
+        FRONT_LEFT -> "الشباك الأمامي الشمال"
+        FRONT_RIGHT -> "الشباك الأمامي اليمين"
+        REAR_LEFT -> "الشباك الخلفي الشمال"
+        REAR_RIGHT -> "الشباك الخلفي اليمين"
+    }
 }

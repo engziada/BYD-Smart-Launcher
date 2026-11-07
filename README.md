@@ -3,6 +3,10 @@
 Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025** head unit.
 
 ## Current status
+**v0.4.3+11 — paired read/write comfort controls.** In Vehicle Controls, read A/C power, fan level, set temperature or any window position and review a new target value. Voice uses the same controls, for example “set fan to 3,” “read rear left window,” or «افتح الشباك اليمين». Each write requires native per-action confirmation and a reviewed exact firmware profile. The one-shot local ADB helper checks Park, zero speed and independent readback before reporting success. It sends no automatic retry.
+
+The checked-in profile list is empty pending on-car review. This build can read and export candidate mappings. Its write path cannot activate on an unreviewed car. To prepare the profile, export firmware identity, raw speed/gear and the seven comfort readbacks, and compare them against the OEM display. Use the full firmware SHA-256, independently validated gear/speed addresses, and exact command/readback pairs. OEM camera feeds, power and charging state, telemetry, and BMS counters remain read-only or separately gated.
+
 **v0.4.2+10 — sensor and integration commissioning build.**
 
 - **Voice and sensors.** Connect local ADB, then ask “tyre pressure,” “cabin temperature,” or “outside temperature.” Arabic alternatives include «ضغط الكاوتش» and «درجة الحرارة بره العربية». Only readings returned by the firmware are spoken, with candidate provenance. Settings can export these samples along with the reflected raw energy counter and indicator state.

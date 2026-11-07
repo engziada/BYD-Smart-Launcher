@@ -40,13 +40,23 @@ internal object FidReadOnlyDiscovery {
 
     /** Fixed entrypoint, fixed arguments, no user-supplied shell commands. */
     fun command(apkPath: String, sensors: Boolean = false): String? {
+        val entry = if (sensors) "com.ziada.bydsmartlauncher.OwnerSensorProbe" else MAIN
+        return apkCommand(apkPath, entry)
+    }
+
+    fun comfortWriteCommand(apkPath: String, mapping: ComfortMapping, value: Int, confirmedAtMs: Long): String? {
+        if (value !in mapping.range || confirmedAtMs < 0) return null
+        val entry = "com.ziada.bydsmartlauncher.ComfortShellWrite"
+        return apkCommand(apkPath, entry)?.let { "$it ${mapping.id} $value $confirmedAtMs" }
+    }
+
+    private fun apkCommand(apkPath: String, entry: String): String? {
         // Installed APK paths vary by Android release; allow the usual randomized /data/app names
         // but no whitespace, quote, semicolon, dollar sign, backtick, or shell metacharacters.
         if (!apkPath.startsWith("/data/app/") || !apkPath.endsWith("/base.apk") ||
             apkPath.length !in 24..350 ||
             apkPath.any { !(it.isLetterOrDigit() && it.code < 128) &&
                 it !in "/._+-=~:%" }) return null
-        val entry = if (sensors) "com.ziada.bydsmartlauncher.OwnerSensorProbe" else MAIN
         return "CLASSPATH='$apkPath' app_process /system/bin $entry"
     }
 

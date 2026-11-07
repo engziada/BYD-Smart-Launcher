@@ -11,6 +11,7 @@ import 'core/vehicle_gateway.dart';
 import 'core/vehicle_snapshot.dart';
 import 'widgets/charging_flow_scene.dart';
 import 'widgets/measured_trip_range.dart';
+import 'widgets/comfort_controls.dart';
 
 final ValueNotifier<bool> _lightMode = ValueNotifier<bool>(false);
 const MethodChannel _voice = MethodChannel('com.ziada.byd_smart_launcher/voice');
@@ -1325,25 +1326,24 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               'messages can use background retry. Vehicle events require a verified source.'),
         ]);
       case LauncherPage.controls:
-        return _section('Vehicle controls', 'Not available until this firmware grants verified, safely gated write access', [
-          _info('Commands unavailable',
-              'Car firmware must be verified. Only allowlisted comfort commands '
-              'with safe conditions and confirmation may be enabled.',
-              Icons.shield_outlined),
-          OutlinedButton.icon(
-            onPressed: _adbBusy || _demo ? null : () => _adbAction('comfortMappings'),
-            icon: const Icon(Icons.manage_search),
-            label: const Text('Probe climate and window mappings (read-only)'),
+        return _section('Vehicle controls', 'Read vehicle state and confirm changes while parked', [
+          ComfortControls(
+            readings: _comfortMappings,
+            busy: _adbBusy,
+            demo: _demo,
+            refresh: () => _adbAction('comfortMappings'),
+            write: (id, value) async {
+              final result = await _vehicleMethods.invokeMapMethod<Object?, Object?>(
+                'comfortWrite', {'id': id, 'value': value},
+              ) ?? {};
+              if (mounted && result['readback'] is int) {
+                setState(() => _comfortMappings = {
+                  ..._comfortMappings, '${id}_state': result['readback'],
+                });
+              }
+              return result;
+            },
           ),
-          if (_comfortMappings.isNotEmpty)
-            Text(_comfortMappings['ok'] == true
-                ? 'Found ${_comfortMappings.keys.where((key) => key.toString().endsWith('_commandFid')).length} '
-                  'candidate mappings. Export diagnostics to review the readbacks.'
-                : 'Mapping probe: ${_comfortMappings['status'] ?? 'unavailable'}'),
-          const Text('Climate, windows and comfort commands need a verified '
-              'BYD control API, proven parked-state inputs and readback. '
-              'Buttons that only simulate control are deliberately not presented '
-              'as live vehicle features.'),
         ]);
       case LauncherPage.settings:
         return _section('Settings & diagnostics',
