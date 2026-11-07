@@ -1,6 +1,7 @@
 package com.ziada.bydsmartlauncher
 
 import android.content.Context
+import android.os.Looper
 import android.view.Surface
 import dalvik.system.PathClassLoader
 import java.io.File
@@ -12,7 +13,7 @@ object OwnerSensorProbe {
         println(OwnerSensorReport.BEGIN)
         val cameraMethods = runCatching {
             val name = "android.hardware.AVMCamera"
-            val type = runCatching { Class.forName(name) }.getOrElse {
+            val type = runCatching { Class.forName(name, false, ClassLoader.getSystemClassLoader()) }.getOrElse {
                 val jar = "/system/framework/bmmcamera.jar"
                 if (!File(jar).isFile) return@getOrElse null
                 Class.forName(name, false, PathClassLoader(jar, ClassLoader.getSystemClassLoader()))
@@ -21,6 +22,7 @@ object OwnerSensorProbe {
         }.getOrDefault(false)
         println("avmSurfaceApi=${if (cameraMethods) 1 else 0}")
         runCatching {
+            if (Looper.myLooper() == null) Looper.prepareMainLooper()
             val threadType = Class.forName("android.app.ActivityThread")
             val thread = threadType.getMethod("systemMain").invoke(null)
             val context = threadType.getMethod("getSystemContext").invoke(thread) as Context
