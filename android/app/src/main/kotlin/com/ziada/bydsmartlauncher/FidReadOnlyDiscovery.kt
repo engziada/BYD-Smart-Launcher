@@ -19,6 +19,13 @@ internal object FidReadOnlyDiscovery {
         "BYDAutoConstants.BYDAUTO_DEVICE_CHARGING",
         "BYDAutoConstants.BYDAUTO_DEVICE_SPEED",
         "BYDAutoConstants.BYDAUTO_DEVICE_GEARBOX",
+        "BYDAutoConstants.BYDAUTO_DEVICE_AC",
+        "BYDAutoConstants.BYDAUTO_DEVICE_BODYWORK",
+        "BYDAutoConstants.BYDAUTO_DEVICE_INSTRUMENT",
+        "Ac.AC_TEMP_INSIDE_FILTERING",
+        "Ac.AC_TEMPERATURE_UNIT",
+        "Instrument.INSTRUMENT_DD_OUT_TEMP",
+        "Instrument.INSTRUMENT_UNIT_TEMPERATURE",
         "Statistic.STATISTIC_ELEC_PERCENTAGE",
         "Statistic.STATISTIC_TOTAL_MILEAGE",
         "Statistic.STATISTIC_TOTAL_ELEC_CONSUMPTION",
@@ -28,18 +35,19 @@ internal object FidReadOnlyDiscovery {
         "Charging.CHARGING_TYPE",
         "Speed.SPEED_AUTO_SPEED",
         "Gearbox.GEARBOX_AUTO_MODE_TYPE"
-    )
+    ) + ComfortMapping.entries.flatMap { listOf(it.commandSymbol, it.stateSymbol) }
     private val oneLine = Regex("""^([A-Za-z][A-Za-z0-9_.]*)=(-?[0-9]{1,11})$""")
 
     /** Fixed entrypoint, fixed arguments, no user-supplied shell commands. */
-    fun command(apkPath: String): String? {
+    fun command(apkPath: String, sensors: Boolean = false): String? {
         // Installed APK paths vary by Android release; allow the usual randomized /data/app names
         // but no whitespace, quote, semicolon, dollar sign, backtick, or shell metacharacters.
         if (!apkPath.startsWith("/data/app/") || !apkPath.endsWith("/base.apk") ||
             apkPath.length !in 24..350 ||
             apkPath.any { !(it.isLetterOrDigit() && it.code < 128) &&
                 it !in "/._+-=~:%" }) return null
-        return "CLASSPATH='$apkPath' app_process /system/bin $MAIN"
+        val entry = if (sensors) "com.ziada.bydsmartlauncher.OwnerSensorProbe" else MAIN
+        return "CLASSPATH='$apkPath' app_process /system/bin $entry"
     }
 
     data class Result(

@@ -34,12 +34,17 @@ internal class LocalAutomationRepository(context: Context) {
             kind = kind,
             thresholdPercent = threshold,
             enabled = false,
-            oncePerTrip = true,
+            oncePerTrip = !kind.startsWith("CHARGE_"),
             cooldownMs = 60_000L,
         )
         if (!save(existing + rule)) return mapOf("ok" to false, "error" to "storage_error")
         return status()
     }
+
+    @Synchronized
+    fun enabledRules(): List<AutomationRule> =
+        if (prefs.getBoolean("master_enabled", false)) load().filter { it.enabled }.map { it.asRule() }
+        else emptyList()
 
     @Synchronized
     fun toggle(id: String, enabled: Boolean): Map<String, Any?> {

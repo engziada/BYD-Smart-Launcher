@@ -39,6 +39,16 @@ internal class DiagnosticReportWriter(private val context: Context) {
             "capturedAtEpochMs", "firmwareVerified", "vehicleWriteAuthorized",
             "automaticEventEligible", "source", "sessionValid"
         )
+        private val OWNER_SENSOR_KEYS = setOf(
+            "ok", "status", "capturedAtEpochMs", "firmwareVerified", "cameraActivated",
+            "avmSurfaceApi", "cabinCelsius", "outsideCelsius", "turnSignalRaw", "energyCounterRaw",
+            "frontLeftKpa", "frontRightKpa", "rearLeftKpa", "rearRightKpa"
+        )
+        private val COMFORT_KEYS = setOf("ok", "status", "vehicleWriteAuthorized") +
+            ComfortMapping.entries.flatMap {
+                val name = it.name.lowercase(java.util.Locale.ROOT)
+                listOf("${name}_device", "${name}_commandFid", "${name}_readbackFid", "${name}_state")
+            }
         private val CHARGING_KEYS = setOf(
             "ok", "status", "capturedAtEpochMs", "catalogResolved", "gunStateRaw", "gunKindCandidate",
             "bmsStateRaw", "bmsPhaseCandidate", "chargingTypeRaw",
@@ -86,7 +96,9 @@ internal class DiagnosticReportWriter(private val context: Context) {
         fidDiscovery: Map<String, Any?> = emptyMap(),
         charging: Map<String, Any?> = emptyMap(),
         nativeStream: Map<String, Any?> = emptyMap(),
-        motion: Map<String, Any?> = emptyMap()
+        motion: Map<String, Any?> = emptyMap(),
+        ownerSensors: Map<String, Any?> = emptyMap(),
+        comfortMappings: Map<String, Any?> = emptyMap()
     ): Map<String, Any?> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return mapOf("ok" to false, "error" to "android_10_required")
@@ -102,6 +114,8 @@ internal class DiagnosticReportWriter(private val context: Context) {
             .put("chargingCandidate", safeFields(charging, CHARGING_KEYS))
             .put("nativeStreamCandidate", safeFields(nativeStream, STREAM_KEYS))
             .put("motionCandidate", safeFields(motion, MOTION_KEYS))
+            .put("ownerSensorsCandidate", safeFields(ownerSensors, OWNER_SENSOR_KEYS))
+            .put("comfortMappingsCandidate", safeFields(comfortMappings, COMFORT_KEYS))
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "byd-diagnostics-${System.currentTimeMillis()}.json")

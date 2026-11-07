@@ -51,7 +51,29 @@ class SafeAutomationEngineTest {
         val validRule = rule.copy(thresholdPercent = 25.0)
         e.reset()
         e.evaluate(listOf(validRule), VerifiedSignal(3, true, -20.0, tripId = "t"))
-        assertEquals(1, e.evaluate(listOf(validRule), VerifiedSignal(4, true, 20.0, tripId = "t")).size)
+        assertTrue(e.evaluate(listOf(validRule), VerifiedSignal(4, true, 20.0, tripId = "t")).isEmpty())
+    }
+
+    @Test fun chargeCompletionRequiresAnExplicitContiguousChargingToFinishedEdge() {
+        val rule = AutomationRule("finish", TriggerKind.CHARGE_FINISHED, oncePerTrip = false)
+        val router = VehicleAlertRouter()
+        val events = mutableListOf<Pair<String, String>>()
+        fun sample(at: Long, state: VerifiedChargeState?, verified: Boolean = true) {
+            router.observe(VerifiedSignal(at, verified, chargeState = state), at, listOf(rule)) { id, kind, _ ->
+                events.add(id to kind)
+            }
+        }
+        sample(1000, VerifiedChargeState.FINISHED)
+        sample(2000, VerifiedChargeState.CHARGING, verified = false)
+        sample(3000, VerifiedChargeState.FINISHED)
+        sample(4000, VerifiedChargeState.CHARGING)
+        sample(5000, null)
+        sample(6000, VerifiedChargeState.FINISHED)
+        sample(7000, VerifiedChargeState.CHARGING)
+        sample(8000, VerifiedChargeState.FINISHED)
+        sample(8000, VerifiedChargeState.FINISHED)
+        assertEquals(listOf("CHARGE_FINISHED"), events.map { it.second })
+        assertEquals(64, events.single().first.length)
     }
 
     @Test fun cooldownAndDisabledRuleAreRespected() {

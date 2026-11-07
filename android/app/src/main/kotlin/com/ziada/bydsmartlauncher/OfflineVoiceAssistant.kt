@@ -19,7 +19,7 @@ import java.util.Locale
 /** Push-to-talk. Audio is routed only to Android's on-device speech provider. */
 internal class OfflineVoiceAssistant(
     private val activity: Activity,
-    private val answer: (VoiceCommand, Boolean) -> String
+    private val answer: (VoiceCommand, Boolean, (String) -> Unit) -> Unit
 ) {
     private val prefs = activity.getSharedPreferences("voice_assistant", Context.MODE_PRIVATE)
     private val handler = Handler(Looper.getMainLooper())
@@ -34,6 +34,7 @@ internal class OfflineVoiceAssistant(
     private var awaitingPermission = false
     private var foreground = false
     private var demo = false
+    private var request = 0L
     private var arabic = prefs.getBoolean("arabic", Locale.getDefault().language == "ar")
 
     private val locale get() = if (arabic) Locale.forLanguageTag("ar-EG") else Locale.US
@@ -72,6 +73,7 @@ internal class OfflineVoiceAssistant(
         }
         pendingSpeech = null
         tts?.stop()
+        request++
         try {
             val current = SpeechRecognizer.createOnDeviceSpeechRecognizer(activity)
             recognizer = current
@@ -99,7 +101,7 @@ internal class OfflineVoiceAssistant(
                     if (recognizer !== current) return
                     stopListening()
                     val phrase = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-                    reply(answer(VoiceCommand.parse(phrase.orEmpty()), arabic))
+                    answerCommand(phrase.orEmpty())
                 }
             })
             current.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -126,7 +128,14 @@ internal class OfflineVoiceAssistant(
     fun submitText(text: String) {
         if (!canStart) return
         stop()
-        reply(answer(VoiceCommand.parse(text), arabic))
+        answerCommand(text)
+    }
+
+    private fun answerCommand(text: String) {
+        val token = ++request
+        answer(VoiceCommand.parse(text), arabic) { response ->
+            if (token == request) reply(response)
+        }
     }
 
     private fun reply(text: String) {
@@ -166,6 +175,7 @@ internal class OfflineVoiceAssistant(
     }
 
     private fun stop() {
+        request++
         stopListening()
         pendingSpeech = null
         tts?.stop()

@@ -10,9 +10,11 @@ import 'core/planning_range.dart';
 import 'core/vehicle_gateway.dart';
 import 'core/vehicle_snapshot.dart';
 import 'widgets/charging_flow_scene.dart';
+import 'widgets/measured_trip_range.dart';
 
 final ValueNotifier<bool> _lightMode = ValueNotifier<bool>(false);
 const MethodChannel _voice = MethodChannel('com.ziada.byd_smart_launcher/voice');
+const MethodChannel _vehicleMethods = MethodChannel('com.ziada.byd_smart_launcher/vehicle');
 
 Color get _background => _lightMode.value ? const Color(0xFFF4F7FA) : const Color(0xFF151C24);
 Color get _surface => _lightMode.value ? Colors.white : const Color(0xFF1C2530);
@@ -95,11 +97,14 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   String _diagnostics = 'Vehicle diagnostics not requested';
   Map<Object?, Object?> _chargingCandidate = {};
   Map<Object?, Object?> _motionCandidate = {};
+  Map<Object?, Object?> _ownerSensors = {};
+  Map<Object?, Object?> _comfortMappings = {};
   bool _adbBusy = false;
   final _tgToken = TextEditingController();
   final _tgChat = TextEditingController();
   bool _tgBusy = false;
   bool _tgConfigured = false;
+  bool _tgAutoRetry = false;
   int _tgPending = 0;
   String _tgMessage = 'No bot credentials are uploaded to GitHub.';
   final _batteryCapacity = TextEditingController();
@@ -174,6 +179,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
       _snapshot = VehicleSnapshot.unavailable();
       _chargingCandidate = {};
       _motionCandidate = {};
+      _ownerSensors = {};
+      _comfortMappings = {};
       _rangeCandidate = {};
       _dashboardSampledAt = null;
     });
@@ -491,6 +498,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         'fids' => await _gateway.probeFidCatalog(),
         'charging' => await _gateway.sampleChargingCandidates(),
         'motion' => await _gateway.probeMotionCandidates(),
+        'ownerSensors' || 'comfortMappings' =>
+          await _vehicleMethods.invokeMapMethod<Object?, Object?>(action) ?? {},
         _ => await _gateway.probeAdb(),
       };
       final snapshot = await _gateway.getSnapshot();
@@ -501,9 +510,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             _chargingCandidate = response;
           } else if (action == 'motion') {
             _motionCandidate = response;
+          } else if (action == 'ownerSensors') {
+            _ownerSensors = response;
+          } else if (action == 'comfortMappings') {
+            _comfortMappings = response;
           } else if (shouldClearAdbObservations(action, response)) {
             _chargingCandidate = {};
             _motionCandidate = {};
+            _ownerSensors = {};
+            _comfortMappings = {};
             _rangeCandidate = {};
             _dashboardSampledAt = null;
           }
@@ -588,6 +603,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     'SOC_BELOW' => 'SOC at or below ${rule['thresholdPercent']}%',
     'POWER_ON' => 'Car power ON',
     'POWER_OFF' => 'Car power OFF',
+    'CHARGE_STARTED' => 'Charging started',
+    'CHARGE_FINISHED' => 'Charging finished',
     _ => 'Unknown trigger',
   };
 
@@ -803,12 +820,13 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     if (mounted) {
       setState(() {
         _tgConfigured = status['configured'] == true;
+        _tgAutoRetry = status['automaticRetryEnabled'] == true;
         _tgPending = (status['pendingMessages'] as num?)?.toInt() ?? 0;
       });
     }
   }
 
-  Future<void> _telegramAction(String action) async {
+  Future<void> _telegramAction(String action, {bool? enabled}) async {
     if (_tgBusy || _demo) return;
     setState(() {
       _tgBusy = true;
@@ -821,12 +839,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         'retry' => await _gateway.telegramRetry(),
         'dropQueue' => await _gateway.telegramClearPending(),
         'status' => await _gateway.telegramSendCurrentStatus(),
+        'automaticRetry' => await _vehicleMethods.invokeMapMethod<Object?, Object?>(
+            'telegramSetAutomaticRetry', {'enabled': enabled}) ?? {},
         _ => await _gateway.telegramSendTest(),
       };
       final status = await _gateway.telegramStatus();
       if (mounted) {
         setState(() {
           _tgConfigured = status['configured'] == true;
+          _tgAutoRetry = status['automaticRetryEnabled'] == true;
           _tgPending = (status['pendingMessages'] as num?)?.toInt() ?? 0;
           _tgMessage = result['ok'] == true
               ? (action == 'save'
@@ -837,7 +858,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                           ? 'Pending tests removed.'
                           : action == 'status'
                               ? 'Current car-status message accepted by Telegram.'
-                              : result['sent'] == false
+                              : action == 'automaticRetry'
+                                  ? (_tgAutoRetry ? 'Background retries enabled.' : 'Background retries disabled.')
+                                  : result['sent'] == false
                                   ? 'No pending messages to retry.'
                                   : 'Test message confirmed by Telegram.')
               : 'Telegram: ${result['error'] ?? 'operation_failed'}${_tgPending > 0 ? ' (pending: $_tgPending)' : ''}';
@@ -1054,10 +1077,17 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         ]);
       case LauncherPage.blindSpot:
         return _section('Blind spot',
-            'Native BYDMate-style camera integration is pending', [
-          _info('Camera disabled by default',
-              'Indicator selects left/right; factory reverse or 360 takes priority',
+            'Check the OEM camera interface and indicator signal while parked', [
+          _info('Camera access requires firmware validation',
+              'AVM surface API: ${switch (_ownerSensors['avmSurfaceApi']) {
+                1 => 'present', 0 => 'unavailable', _ => 'unprobed',
+              }} • Indicator raw: ${_ownerSensors['turnSignalRaw'] ?? '—'}',
               Icons.videocam_off_outlined),
+          OutlinedButton.icon(
+            onPressed: _adbBusy || _demo ? null : () => _adbAction('ownerSensors'),
+            icon: const Icon(Icons.sensors_outlined),
+            label: const Text('Probe AVM and indicator (read-only)'),
+          ),
           const Text('Planned: firmware-aware FIDs, 150 ms signal response, '
               'persistent window positioning, and no interference with OEM cameras.'),
         ]);
@@ -1119,6 +1149,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           if (_rangeBusy) const LinearProgressIndicator(),
           Text(_planRangeOrigin),
           const Divider(),
+          if (!_demo) const MeasuredTripRange(),
+          if (!_demo) const Divider(),
           _info('Actual BMS Real Range — integration pending',
               'Driving-only energy units and charge exclusion are not yet '
               'verified on this Song Plus. Do not confuse the planner with '
@@ -1162,6 +1194,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 DropdownMenuItem(value: 'SOC_BELOW', child: Text('SOC below threshold')),
                 DropdownMenuItem(value: 'POWER_ON', child: Text('Vehicle power ON')),
                 DropdownMenuItem(value: 'POWER_OFF', child: Text('Vehicle power OFF')),
+                DropdownMenuItem(value: 'CHARGE_STARTED', child: Text('Charging started')),
+                DropdownMenuItem(value: 'CHARGE_FINISHED', child: Text('Charging finished')),
               ],
               onChanged: _rulesBusy || _demo ? null : (value) {
                 if (value != null) setState(() => _newRuleKind = value);
@@ -1264,6 +1298,13 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             ],
           ),
           Text('Pending diagnostic messages: $_tgPending'),
+          SwitchListTile(
+            title: const Text('Retry failed diagnostic messages automatically'),
+            subtitle: const Text('Uses the saved Telegram chat when a network is available.'),
+            value: _tgAutoRetry,
+            onChanged: _tgBusy || _demo || !_tgConfigured
+                ? null : (value) => _telegramAction('automaticRetry', enabled: value),
+          ),
           Wrap(spacing: 12, runSpacing: 8, children: [
             OutlinedButton.icon(
               onPressed: _tgBusy || _demo || !_tgConfigured || _tgPending == 0
@@ -1280,9 +1321,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ]),
           Text(_tgMessage),
           if (_tgBusy) const LinearProgressIndicator(),
-          const Text('Manually confirmed fresh car status sends once; no queued '
-              'or automatic retry of private readings. Diagnostic TEST messages '
-              'have manual retry. ON/OFF alerts remain disabled pending verification.'),
+          const Text('Manually confirmed car status sends once. Only diagnostic test '
+              'messages can use background retry. Vehicle events require a verified source.'),
         ]);
       case LauncherPage.controls:
         return _section('Vehicle controls', 'Not available until this firmware grants verified, safely gated write access', [
@@ -1290,6 +1330,16 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               'Car firmware must be verified. Only allowlisted comfort commands '
               'with safe conditions and confirmation may be enabled.',
               Icons.shield_outlined),
+          OutlinedButton.icon(
+            onPressed: _adbBusy || _demo ? null : () => _adbAction('comfortMappings'),
+            icon: const Icon(Icons.manage_search),
+            label: const Text('Probe climate and window mappings (read-only)'),
+          ),
+          if (_comfortMappings.isNotEmpty)
+            Text(_comfortMappings['ok'] == true
+                ? 'Found ${_comfortMappings.keys.where((key) => key.toString().endsWith('_commandFid')).length} '
+                  'candidate mappings. Export diagnostics to review the readbacks.'
+                : 'Mapping probe: ${_comfortMappings['status'] ?? 'unavailable'}'),
           const Text('Climate, windows and comfort commands need a verified '
               'BYD control API, proven parked-state inputs and readback. '
               'Buttons that only simulate control are deliberately not presented '
@@ -1324,6 +1374,16 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               'BYD vehicle controls or camera feeds.'),
           const SizedBox(height: 8),
           Text(_diagnostics),
+          if (_ownerSensors.isNotEmpty)
+            _info(
+              'Sensor candidates',
+              'Tyres, kPa (FL / FR / RL / RR): '
+              '${_ownerSensors['frontLeftKpa'] ?? '—'} / ${_ownerSensors['frontRightKpa'] ?? '—'} / '
+              '${_ownerSensors['rearLeftKpa'] ?? '—'} / ${_ownerSensors['rearRightKpa'] ?? '—'}\n'
+              'Cabin / outside: ${_ownerSensors['cabinCelsius'] ?? '—'} / '
+              '${_ownerSensors['outsideCelsius'] ?? '—'} °C • Raw energy: ${_ownerSensors['energyCounterRaw'] ?? '—'}',
+              Icons.sensors_outlined,
+            ),
           if (_motionCandidate.isNotEmpty)
             _info(
               'Motion firmware diagnostic — RAW ONLY',
@@ -1379,6 +1439,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('charging'),
                 icon: const Icon(Icons.ev_station_outlined),
                 label: const Text('Read charging state once (read-only candidate)'),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('ownerSensors'),
+                icon: const Icon(Icons.sensors_outlined),
+                label: const Text('Read tyre and temperature candidates'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo || _dashboardStarting || _dashboardEnabled)

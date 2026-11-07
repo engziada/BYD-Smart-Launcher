@@ -12,6 +12,9 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.Executors
 import com.ziada.bydsmartlauncher.automation.LocalAutomationRepository
+import com.ziada.bydsmartlauncher.automation.VehicleAlertRouter
+import com.ziada.bydsmartlauncher.automation.VerifiedChargeState
+import com.ziada.bydsmartlauncher.automation.VerifiedSignal
 
 /**
  * Native ADB diagnostics + foreground, operator-enabled firmware-gated READ-only candidate
@@ -21,13 +24,16 @@ class MainActivity : FlutterActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val adb by lazy { SafeAdbTransport(applicationContext) }
-    private val telegram by lazy { TelegramBotService(applicationContext) }
+    private val telegram by lazy { TelegramBotService.shared(applicationContext) }
     private val ruleStore by lazy { LocalAutomationRepository(applicationContext) }
+    private val measuredTrips by lazy { MeasuredTripHistory(applicationContext) }
+    private val alerts = VehicleAlertRouter()
     private val voice by lazy { OfflineVoiceAssistant(this, ::voiceAnswer) }
     private val wheelVoiceHandler: (KeyEvent) -> Boolean = ::handleVoiceKey
     private val candidateStream by lazy {
         NativeReadOnlyStream(adb, worker, mainHandler) { sample ->
             lastTelemetrySample = sample + mapOf("sessionValid" to true)
+            observeVehicleAlerts(sample)
         }
     }
     private val methods = "com.ziada.byd_smart_launcher/vehicle"
@@ -38,10 +44,31 @@ class MainActivity : FlutterActivity() {
     @Volatile private var lastFidDiscovery: Map<String, Any?> = emptyMap()
     @Volatile private var lastChargingSample: Map<String, Any?> = emptyMap()
     @Volatile private var lastMotionSample: Map<String, Any?> = emptyMap()
+    @Volatile private var lastOwnerSensors: Map<String, Any?> = emptyMap()
+    @Volatile private var lastComfortMappings: Map<String, Any?> = emptyMap()
 
     /** Invalidate only EXISTING prior observations, not an empty report section. */
     private fun historical(sample: Map<String, Any?>): Map<String, Any?> =
         if (sample.isEmpty()) sample else sample + mapOf("sessionValid" to false)
+
+    private fun observeVehicleAlerts(sample: Map<String, Any?>) {
+        // CandidateStreamPolicy never sets these two gates. A firmware-verified source
+        // must provide event eligibility as well as independently validated state.
+        if (sample["firmwareVerified"] != true || sample["automaticEventEligible"] != true) return
+        val time = (sample["capturedAtEpochMs"] as? Number)?.toLong() ?: return
+        val charge = VerifiedChargeState.entries.firstOrNull { it.name == sample["verifiedChargeState"] }
+        val signal = VerifiedSignal(
+            timestampMs = time,
+            verified = true,
+            socPercent = (sample["verifiedSocPercent"] as? Number)?.toDouble(),
+            powerOn = sample["verifiedPowerOn"] as? Boolean,
+            tripId = sample["verifiedTripId"] as? String,
+            chargeState = charge,
+        )
+        worker.execute {
+            alerts.observe(signal, System.currentTimeMillis(), ruleStore.enabledRules(), telegram::queueVerifiedVehicleEvent)
+        }
+    }
 
     private fun snapshot(): Map<String, Any?> = mapOf(
         "connected" to false, // ADB != verified live BYD car telemetry
@@ -107,7 +134,7 @@ class MainActivity : FlutterActivity() {
                                 DiagnosticReportWriter(applicationContext).save(
                                     adb.diagnostics(), lastFirmwareProbe, lastTelemetrySample,
                                     lastFidDiscovery, lastChargingSample,
-                                    candidateStream.currentStatus(), lastMotionSample
+                                    candidateStream.currentStatus(), lastMotionSample, lastOwnerSensors, lastComfortMappings
                                 )
                             } catch (_: Exception) {
                                 mapOf("ok" to false, "error" to "export_failed")
@@ -120,6 +147,15 @@ class MainActivity : FlutterActivity() {
                         "blindSpot" to false, "telegram" to false,
                         "automations" to false, "realRange" to false, "controls" to false
                     ))
+                    "ownerSensors", "comfortMappings" -> worker.execute {
+                        val sensors = call.method == "ownerSensors"
+                        val reply = runCatching {
+                            if (sensors) adb.sampleOwnerSensors(includeVehicleCatalog = true)
+                            else adb.probeComfortMappings()
+                        }.getOrElse { mapOf("ok" to false, "status" to "vehicle_probe_failed") }
+                        if (sensors) lastOwnerSensors = reply else lastComfortMappings = reply
+                        mainHandler.post { result.success(reply) }
+                    }
                     "automationStatus" -> result.success(ruleStore.status())
                     "automationAdd", "automationToggle", "automationRemove", "automationMasterSet" -> {
                         worker.execute {
@@ -133,14 +169,37 @@ class MainActivity : FlutterActivity() {
                                     call.argument<Boolean>("enabled") ?: false
                                 )
                                 "automationRemove" -> ruleStore.remove(call.argument<String>("id") ?: "")
-                                else -> ruleStore.setMaster(call.argument<Boolean>("enabled") ?: false)
+                                else -> {
+                                    val enabled = call.argument<Boolean>("enabled") == true
+                                    ruleStore.setMaster(enabled).also {
+                                        if (!enabled && it["ok"] == true) telegram.clearVehicleEvents()
+                                    }
+                                }
                             }
                             mainHandler.post { result.success(response) }
                         }
                     }
-                    "telegramStatus" -> result.success(telegram.status())
-                    "telegramOutboxStatus" -> result.success(telegram.outboxStatus())
+                    "telegramStatus", "telegramOutboxStatus", "telegramSetAutomaticRetry" -> worker.execute {
+                        val reply = when (call.method) {
+                            "telegramStatus" -> telegram.status()
+                            "telegramOutboxStatus" -> telegram.outboxStatus()
+                            else -> telegram.setAutomaticRetry(call.argument<Boolean>("enabled") == true)
+                        }
+                        mainHandler.post { result.success(reply) }
+                    }
                     "rangeCapacityStatus" -> result.success(adb.capacityStatus())
+                    "measuredTripsStatus", "measuredTripsRecord", "measuredTripsClear" -> worker.execute {
+                        val reply = when (call.method) {
+                            "measuredTripsRecord" -> measuredTrips.record(
+                                call.argument<Number>("distanceKm")?.toDouble(),
+                                call.argument<Number>("drivingKwh")?.toDouble(),
+                                call.argument<Boolean>("eligible") == true,
+                            )
+                            "measuredTripsClear" -> measuredTrips.clear()
+                            else -> measuredTrips.status()
+                        }
+                        mainHandler.post { result.success(reply) }
+                    }
                     "rangeCapacitySet" -> {
                         val value = call.argument<Number>("kwh")?.toDouble()
                         result.success(adb.configureCapacity(value))
@@ -256,8 +315,30 @@ class MainActivity : FlutterActivity() {
             })
     }
 
-    private fun voiceAnswer(command: VoiceCommand, arabic: Boolean): String {
+    private fun voiceAnswer(command: VoiceCommand, arabic: Boolean, respond: (String) -> Unit) {
         fun localized(en: String, ar: String) = if (arabic) ar else en
+        if (command in setOf(VoiceCommand.TYRES, VoiceCommand.CABIN_TEMP, VoiceCommand.OUTSIDE_TEMP)) {
+            worker.execute {
+                val data = runCatching { adb.sampleOwnerSensors(includeVehicleCatalog = command != VoiceCommand.TYRES) }
+                    .getOrDefault(emptyMap())
+                val response = if (command == VoiceCommand.TYRES) {
+                    val wheels = OwnerSensorReport.wheels.map { data[it] as? Int }
+                    if (wheels.any { it != null }) localized(
+                        "Unverified tyre pressures in kilopascals. Front left ${wheels[0] ?: "unavailable"}, front right ${wheels[1] ?: "unavailable"}, rear left ${wheels[2] ?: "unavailable"}, rear right ${wheels[3] ?: "unavailable"}.",
+                        "قراءات ضغط غير مؤكدة بالكيلوباسكال. قدام شمال ${wheels[0] ?: "غير متاح"}، قدام يمين ${wheels[1] ?: "غير متاح"}، ورا شمال ${wheels[2] ?: "غير متاح"}، ورا يمين ${wheels[3] ?: "غير متاح"}."
+                    ) else localized("Tyre pressure is unavailable.", "قراءة ضغط الكاوتش غير متاحة.")
+                } else {
+                    val key = if (command == VoiceCommand.CABIN_TEMP) "cabinCelsius" else "outsideCelsius"
+                    val value = data[key] as? Int
+                    if (value != null) localized(
+                        "Unverified temperature: $value degrees Celsius.",
+                        "قراءة الحرارة غير مؤكدة: $value درجة مئوية."
+                    ) else localized("Temperature is unavailable.", "قراءة الحرارة غير متاحة.")
+                }
+                mainHandler.post { respond(response) }
+            }
+            return
+        }
         val current = candidateStream.currentStatus()
         val capturedAt = (current["capturedAtEpochMs"] as? Number)?.toLong()
         val age = capturedAt?.let { System.currentTimeMillis() - it }
@@ -266,7 +347,7 @@ class MainActivity : FlutterActivity() {
         fun read(key: String): Double? = if (fresh) (current[key] as? Number)?.toDouble() else null
         val unavailable = localized("No current reading. Start the read-only stream.",
             "مفيش قراءة حديثة. شغّل بث قراءة بيانات العربية.")
-        return when (command) {
+        respond(when (command) {
             VoiceCommand.BATTERY -> read("socCandidatePercent")?.let {
                 localized("Unverified battery reading: $it percent.",
                     "قراءة البطارية غير مؤكدة: $it في المية.")
@@ -274,10 +355,10 @@ class MainActivity : FlutterActivity() {
             VoiceCommand.ODOMETER -> read("odometerCandidateKm")?.let {
                 localized("Unverified mileage: $it kilometers.", "قراءة العداد غير مؤكدة: $it كيلومتر.")
             } ?: unavailable
-            VoiceCommand.TYRES -> localized("Tyre pressure is unavailable.", "قراءة ضغط الكاوتش غير متاحة.")
             VoiceCommand.COMFORT -> localized("Vehicle controls are unavailable.", "التحكم في العربية غير متاح.")
-            VoiceCommand.UNKNOWN -> localized("Try battery level or odometer.", "جرّب نسبة البطارية أو قراءة العداد.")
-        }
+            else -> localized("Try battery level, odometer, or tyre pressure.",
+                "جرّب نسبة البطارية أو قراءة العداد أو ضغط الكاوتش.")
+        })
     }
 
     override fun onStart() {

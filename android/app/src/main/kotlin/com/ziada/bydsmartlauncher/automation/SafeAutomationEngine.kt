@@ -5,7 +5,8 @@ package com.ziada.bydsmartlauncher.automation
  * NO Telegram or vehicle control commands are dispatched by this class.
  * The caller must provide actual VERIFIED vehicle telemetry (never raw FID candidates).
  */
-internal enum class TriggerKind { SOC_BELOW, POWER_ON, POWER_OFF }
+internal enum class TriggerKind { SOC_BELOW, POWER_ON, POWER_OFF, CHARGE_STARTED, CHARGE_FINISHED }
+internal enum class VerifiedChargeState { IDLE, CHARGING, FINISHED }
 internal enum class ActionKind { NOTIFICATION_ONLY }
 internal data class AutomationRule(
     val id: String,
@@ -21,7 +22,8 @@ internal data class VerifiedSignal(
     val verified: Boolean,
     val socPercent: Double? = null,
     val powerOn: Boolean? = null,
-    val tripId: String? = null
+    val tripId: String? = null,
+    val chargeState: VerifiedChargeState? = null,
 )
 internal data class ActionIntent(val ruleId: String, val kind: ActionKind)
 
@@ -40,11 +42,13 @@ internal class SafeAutomationEngine {
 
     private val states = mutableMapOf<String, RuleState>()
     private var lastPower: Boolean? = null
+    private var lastCharge: VerifiedChargeState? = null
     private var lastTimestamp: Long? = null
 
     fun reset() {
         states.clear()
         lastPower = null
+        lastCharge = null
         lastTimestamp = null
     }
 
@@ -53,6 +57,7 @@ internal class SafeAutomationEngine {
         if (lastTimestamp?.let { input.timestampMs <= it } == true) return emptyList()
         val last = lastPower
         val powerChanged = last != null && input.powerOn != null && last != input.powerOn
+        val chargeBefore = lastCharge
         val outputs = mutableListOf<ActionIntent>()
         for (rule in rules) {
             if (rule.id.isBlank() || !rule.enabled || rule.action != ActionKind.NOTIFICATION_ONLY ||
@@ -62,17 +67,21 @@ internal class SafeAutomationEngine {
                 TriggerKind.SOC_BELOW -> {
                     val soc = input.socPercent
                     val threshold = rule.thresholdPercent
-                    soc != null && soc.isFinite() && soc in 0.0..100.0 &&
-                        threshold != null && threshold.isFinite() && threshold in 0.0..100.0 &&
-                        soc <= threshold
+                    if (soc != null && soc.isFinite() && soc in 0.0..100.0 &&
+                        threshold != null && threshold.isFinite() && threshold in 0.0..100.0) soc <= threshold
+                    else null
                 }
                 TriggerKind.POWER_ON -> powerChanged && input.powerOn == true
                 TriggerKind.POWER_OFF -> powerChanged && input.powerOn == false
+                TriggerKind.CHARGE_STARTED -> (chargeBefore == VerifiedChargeState.IDLE ||
+                    chargeBefore == VerifiedChargeState.FINISHED) && input.chargeState == VerifiedChargeState.CHARGING
+                TriggerKind.CHARGE_FINISHED -> chargeBefore == VerifiedChargeState.CHARGING &&
+                    input.chargeState == VerifiedChargeState.FINISHED
             }
             // SOC uses a false->true transition. Power triggers are already edges.
             val edge = when (rule.kind) {
-                TriggerKind.SOC_BELOW -> matches && state.lastMatched == false
-                else -> matches
+                TriggerKind.SOC_BELOW -> matches == true && state.lastMatched == false
+                else -> matches == true
             }
             state.lastMatched = matches
             if (!edge) continue
@@ -86,7 +95,8 @@ internal class SafeAutomationEngine {
             state.lastFiredAt = input.timestampMs
             state.lastTripId = input.tripId
         }
-        if (input.powerOn != null) lastPower = input.powerOn
+        lastPower = input.powerOn
+        lastCharge = input.chargeState
         lastTimestamp = input.timestampMs
         return outputs
     }

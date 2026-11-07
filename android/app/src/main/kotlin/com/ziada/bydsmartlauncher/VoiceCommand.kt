@@ -3,7 +3,7 @@ package com.ziada.bydsmartlauncher
 import java.util.Locale
 
 internal enum class VoiceCommand {
-    BATTERY, ODOMETER, TYRES, COMFORT, UNKNOWN;
+    BATTERY, ODOMETER, TYRES, CABIN_TEMP, OUTSIDE_TEMP, COMFORT, UNKNOWN;
 
     companion object {
         fun parse(text: String): VoiceCommand {
@@ -21,6 +21,8 @@ internal enum class VoiceCommand {
                 "tyre pressure", "tire pressure", "what s my tyre pressure",
                 "what s my tire pressure", "what is my tyre pressure",
                 "what is my tire pressure", "ضغط الكاوتش", "ضغط الاطارات" -> TYRES
+                "cabin temperature", "inside temperature", "درجة الحرارة جوه العربية" -> CABIN_TEMP
+                "outside temperature", "درجة الحرارة بره العربية" -> OUTSIDE_TEMP
                 "lower the fan", "open the left window", "open the right window",
                 "قلل سرعة المروحة", "افتح الشباك الشمال", "افتح الشباك اليمين" -> COMFORT
                 else -> UNKNOWN

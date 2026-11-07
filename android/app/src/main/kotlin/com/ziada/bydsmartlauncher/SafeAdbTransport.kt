@@ -484,6 +484,78 @@ internal class SafeAdbTransport(context: Context) {
         )
     }
 
+    @Synchronized
+    fun sampleOwnerSensors(includeVehicleCatalog: Boolean): Map<String, Any?> {
+        val active = client?.takeIf { hasConnectedSession() }
+            ?: return mapOf("ok" to false, "status" to "adb_not_connected")
+        val sensorCommand = FidReadOnlyDiscovery.command(appContext.packageCodePath, sensors = true)
+            ?: return mapOf("ok" to false, "status" to "invalid_apk_path")
+        val sensors = OwnerSensorReport.parse(active.exec(sensorCommand))
+        val data = mutableMapOf<String, Any?>(
+            "status" to if (sensors != null) "sensor_helper_answered" else "sensor_helper_unavailable",
+            "firmwareVerified" to false,
+            "cameraActivated" to false,
+        )
+        if (sensors != null) data.putAll(sensors)
+        if (includeVehicleCatalog) {
+            val discovery = FidReadOnlyDiscovery.command(appContext.packageCodePath)
+                ?.let { FidReadOnlyDiscovery.parse(active.exec(it)) }
+            val catalog = discovery?.catalog
+            fun read(group: String, name: String): Int? {
+                val device = catalog?.deviceOf(group) ?: return null
+                val fid = catalog.fidOf(name) ?: return null
+                return CandidateTelemetry.int(active.exec("service call autoservice 5 i32 $device i32 $fid"))
+            }
+            val cabinUnit = read("AC", "Ac.AC_TEMPERATURE_UNIT")
+            if (cabinUnit == 1) {
+                data["cabinCelsius"] = read("AC", "Ac.AC_TEMP_INSIDE_FILTERING")?.takeIf { it in 1..90 }
+            }
+            val outsideUnit = read("INSTRUMENT", "Instrument.INSTRUMENT_UNIT_TEMPERATURE")
+            if (outsideUnit == 1) {
+                data["outsideCelsius"] = read("INSTRUMENT", "Instrument.INSTRUMENT_DD_OUT_TEMP")?.takeIf { it in -60..100 }
+            }
+            data["turnSignalRaw"] = read("LIGHT", "Light.LIGHT_TURN_SIGNAL_LIGHT")?.takeIf { it in 0..255 }
+            if (discovery?.readyForCandidateProbes == true) {
+                val device = catalog?.deviceOf("STATISTIC")
+                val fid = catalog?.fidOf("Statistic.STATISTIC_TOTAL_ELEC_CONSUMPTION")
+                if (device != null && fid != null) {
+                    data["energyCounterRaw"] = CandidateTelemetry.float(
+                        active.exec("service call autoservice 7 i32 $device i32 $fid")
+                    )
+                }
+            }
+        }
+        data["ok"] = sensors != null || data.values.any { it is Int || it is Double }
+        data["capturedAtEpochMs"] = System.currentTimeMillis()
+        return data
+    }
+
+    @Synchronized
+    fun probeComfortMappings(): Map<String, Any?> {
+        val active = client?.takeIf { hasConnectedSession() }
+            ?: return mapOf("ok" to false, "status" to "adb_not_connected")
+        val command = FidReadOnlyDiscovery.command(appContext.packageCodePath)
+            ?: return mapOf("ok" to false, "status" to "invalid_apk_path")
+        val catalog = FidReadOnlyDiscovery.parse(active.exec(command)).catalog
+        val readings = mutableMapOf<String, Any?>("vehicleWriteAuthorized" to false)
+        for (mapping in ComfortMapping.entries) {
+            val device = if (mapping.featureGroup == "Ac") catalog.deviceOf("AC") else catalog.deviceOf("BODYWORK")
+            val stateFid = catalog.fidOf(mapping.stateSymbol)
+            val commandFid = catalog.fidOf(mapping.commandSymbol)
+            val prefix = mapping.name.lowercase(java.util.Locale.ROOT)
+            if (device != null && stateFid != null && commandFid != null && stateFid != commandFid) {
+                val value = CandidateTelemetry.int(active.exec("service call autoservice 5 i32 $device i32 $stateFid"))
+                readings["${prefix}_device"] = device
+                readings["${prefix}_commandFid"] = commandFid
+                readings["${prefix}_readbackFid"] = stateFid
+                readings["${prefix}_state"] = value?.takeIf { it in mapping.range }
+            }
+        }
+        readings["ok"] = readings.size > 1
+        readings["status"] = if (readings["ok"] == true) "candidate_mappings_found" else "mappings_unavailable"
+        return readings
+    }
+
     /** Operator-invoked, FIXED read-only property and service liveness checks. */
     @Synchronized
     fun probeFirmware(): Map<String, Any?> {
