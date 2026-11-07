@@ -186,8 +186,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
       await _voice.invokeMethod<void>(method, argument);
     } on MissingPluginException {
       if (mounted && method != 'demo') _showVoiceUnavailable();
-    } on PlatformException {
-      if (mounted && method != 'demo') _showVoiceUnavailable();
+    } on PlatformException catch (error) {
+      if (!mounted || method == 'demo') return;
+      if (error.code == 'settings_unavailable') {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This head unit does not expose Android Accessibility Settings.'),
+        ));
+      } else {
+        _showVoiceUnavailable();
+      }
     }
   }
 
@@ -1306,6 +1313,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ),
           _info('ADB: ${_snapshot.adbState}',
               'Helper: ${_snapshot.helperState}', Icons.usb_outlined),
+          OutlinedButton.icon(
+            onPressed: (_adbBusy || _demo) ? null : _exportDiagnostics,
+            icon: const Icon(Icons.file_download_outlined),
+            label: const Text('Export sanitized diagnostics JSON'),
+          ),
           const Text('Only use ADB setup while the car is safely parked. '
               'Enable the head-unit Wireless ADB setting first. '
               'This prototype will request ADB authorization, but cannot yet access '
@@ -1384,11 +1396,6 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 icon: const Icon(Icons.refresh),
                 label: const Text('Refresh diagnostics'),
               ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : _exportDiagnostics,
-                icon: const Icon(Icons.file_download_outlined),
-                label: const Text('Export sanitized diagnostics JSON'),
-              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -1405,6 +1412,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             OutlinedButton(
               onPressed: _demo ? null : _typeVoiceCommand,
               child: const Text('Type an assistant command'),
+            ),
+            OutlinedButton(
+              onPressed: _demo ? null : () => _voiceAction('wheelSettings'),
+              child: const Text('Steering-wheel voice settings'),
             ),
           ]),
         ]);

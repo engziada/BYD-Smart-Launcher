@@ -3,6 +3,8 @@ package com.ziada.bydsmartlauncher
 import android.os.Handler
 import android.os.Looper
 import android.content.pm.PackageManager
+import android.content.Intent
+import android.provider.Settings
 import android.view.KeyEvent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -22,6 +24,7 @@ class MainActivity : FlutterActivity() {
     private val telegram by lazy { TelegramBotService(applicationContext) }
     private val ruleStore by lazy { LocalAutomationRepository(applicationContext) }
     private val voice by lazy { OfflineVoiceAssistant(this, ::voiceAnswer) }
+    private val wheelVoiceHandler: (KeyEvent) -> Boolean = ::handleVoiceKey
     private val candidateStream by lazy {
         NativeReadOnlyStream(adb, worker, mainHandler) { sample ->
             lastTelemetrySample = sample + mapOf("sessionValid" to true)
@@ -76,6 +79,14 @@ class MainActivity : FlutterActivity() {
                         val command = call.arguments as? String
                         if (command != null && command.length in 1..120) voice.submitText(command)
                         result.success(null)
+                    }
+                    "wheelSettings" -> {
+                        try {
+                            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                            result.success(null)
+                        } catch (_: android.content.ActivityNotFoundException) {
+                            result.error("settings_unavailable", null, null)
+                        }
                     }
                     else -> result.notImplemented()
                 }
@@ -274,13 +285,23 @@ class MainActivity : FlutterActivity() {
         voice.setForeground(true)
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.keyCode == KeyEvent.KEYCODE_VOICE_ASSIST && voice.canStart) {
-            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) voice.start()
-            return true
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) WheelVoiceService.foregroundHandler = wheelVoiceHandler
+        else if (WheelVoiceService.foregroundHandler === wheelVoiceHandler) {
+            WheelVoiceService.foregroundHandler = null
         }
-        return super.dispatchKeyEvent(event)
     }
+
+    private fun handleVoiceKey(event: KeyEvent): Boolean {
+        if (!voice.canStart) return false
+        if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) voice.start()
+        return true
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        (WheelVoiceService.isVoiceKey(event.keyCode) && handleVoiceKey(event)) ||
+            super.dispatchKeyEvent(event)
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -290,6 +311,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onStop() {
+        if (WheelVoiceService.foregroundHandler === wheelVoiceHandler) {
+            WheelVoiceService.foregroundHandler = null
+        }
         voice.setForeground(false)
         candidateStream.stop("app_not_foreground")
         super.onStop()
