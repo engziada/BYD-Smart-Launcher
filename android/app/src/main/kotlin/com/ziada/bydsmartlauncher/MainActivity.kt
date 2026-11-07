@@ -2,6 +2,8 @@ package com.ziada.bydsmartlauncher
 
 import android.os.Handler
 import android.os.Looper
+import android.content.pm.PackageManager
+import android.view.KeyEvent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -19,6 +21,7 @@ class MainActivity : FlutterActivity() {
     private val adb by lazy { SafeAdbTransport(applicationContext) }
     private val telegram by lazy { TelegramBotService(applicationContext) }
     private val ruleStore by lazy { LocalAutomationRepository(applicationContext) }
+    private val voice by lazy { OfflineVoiceAssistant(this, ::voiceAnswer) }
     private val candidateStream by lazy {
         NativeReadOnlyStream(adb, worker, mainHandler) { sample ->
             lastTelemetrySample = sample + mapOf("sessionValid" to true)
@@ -40,7 +43,7 @@ class MainActivity : FlutterActivity() {
     private fun snapshot(): Map<String, Any?> = mapOf(
         "connected" to false, // ADB != verified live BYD car telemetry
         "adbState" to adb.transportState,
-        "helperState" to "not_installed",
+        "helperState" to adb.helperState,
         "socPercent" to null,
         "speedKmh" to null,
         "gear" to null,
@@ -54,6 +57,29 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.ziada.byd_smart_launcher/voice")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> {
+                        voice.start()
+                        result.success(null)
+                    }
+                    "language" -> {
+                        voice.setLanguage(call.arguments == "ar")
+                        result.success(null)
+                    }
+                    "demo" -> {
+                        voice.setDemo(call.arguments == true)
+                        result.success(null)
+                    }
+                    "text" -> {
+                        val command = call.arguments as? String
+                        if (command != null && command.length in 1..120) voice.submitText(command)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, methods)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -219,12 +245,58 @@ class MainActivity : FlutterActivity() {
             })
     }
 
+    private fun voiceAnswer(command: VoiceCommand, arabic: Boolean): String {
+        fun localized(en: String, ar: String) = if (arabic) ar else en
+        val current = candidateStream.currentStatus()
+        val capturedAt = (current["capturedAtEpochMs"] as? Number)?.toLong()
+        val age = capturedAt?.let { System.currentTimeMillis() - it }
+        val fresh = adb.transportState == "connected" && current["streamState"] == "candidate" &&
+            age != null && age in 0..15_000L
+        fun read(key: String): Double? = if (fresh) (current[key] as? Number)?.toDouble() else null
+        val unavailable = localized("No current reading. Start the read-only stream.",
+            "مفيش قراءة حديثة. شغّل بث قراءة بيانات العربية.")
+        return when (command) {
+            VoiceCommand.BATTERY -> read("socCandidatePercent")?.let {
+                localized("Unverified battery reading: $it percent.",
+                    "قراءة البطارية غير مؤكدة: $it في المية.")
+            } ?: unavailable
+            VoiceCommand.ODOMETER -> read("odometerCandidateKm")?.let {
+                localized("Unverified mileage: $it kilometers.", "قراءة العداد غير مؤكدة: $it كيلومتر.")
+            } ?: unavailable
+            VoiceCommand.TYRES -> localized("Tyre pressure is unavailable.", "قراءة ضغط الكاوتش غير متاحة.")
+            VoiceCommand.COMFORT -> localized("Vehicle controls are unavailable.", "التحكم في العربية غير متاح.")
+            VoiceCommand.UNKNOWN -> localized("Try battery level or odometer.", "جرّب نسبة البطارية أو قراءة العداد.")
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        voice.setForeground(true)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_VOICE_ASSIST && voice.canStart) {
+            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) voice.start()
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == OfflineVoiceAssistant.MIC_REQUEST) {
+            voice.onPermissionResult(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+        }
+    }
+
     override fun onStop() {
+        voice.setForeground(false)
         candidateStream.stop("app_not_foreground")
         super.onStop()
     }
 
     override fun onDestroy() {
+        voice.close()
         candidateStream.stop("activity_destroyed")
         worker.execute { adb.disconnect() }
         worker.shutdown()

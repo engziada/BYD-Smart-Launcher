@@ -16,7 +16,7 @@ import java.time.Instant
 internal class DiagnosticReportWriter(private val context: Context) {
     companion object {
         private val TRANSPORT_KEYS = setOf(
-            "adb", "adbFailure", "androidRelease", "helper", "vehicleTelemetry", "writeEnabled"
+            "adb", "adbFailure", "androidRelease", "helper", "autoservice", "vehicleTelemetry", "writeEnabled"
         )
         private val FIRMWARE_KEYS = setOf(
             "ok", "model", "manufacturer", "androidSdk", "fingerprintHashPrefix",

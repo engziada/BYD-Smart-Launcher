@@ -68,4 +68,19 @@ class FidReadOnlyDiscoveryTest {
         assertFalse(result.readyForCandidateProbes)
         assertEquals(false, result.diagnostics()["ok"])
     }
+
+    @Test fun helperAndVehicleServiceReportSeparateStates() {
+        val result = FidReadOnlyDiscovery.parse(frame(
+            "BYD_HELPER_AUTOSERVICE=unavailable\nBYD_FID_PROBE_UNAVAILABLE"
+        ))
+        assertEquals("one_shot_ready", result.diagnostics()["helper"])
+        assertEquals("unavailable", result.autoservice)
+        assertFalse(result.readyForCandidateProbes)
+        assertEquals("probe_output_invalid", FidReadOnlyDiscovery.parse(frame(
+            "BYD_HELPER_AUTOSERVICE=responding\nBYD_HELPER_AUTOSERVICE=responding"
+        )).status)
+        assertEquals("probe_output_invalid", FidReadOnlyDiscovery.parse(frame(
+            "BYD_HELPER_AUTOSERVICE=forged"
+        )).status)
+    }
 }

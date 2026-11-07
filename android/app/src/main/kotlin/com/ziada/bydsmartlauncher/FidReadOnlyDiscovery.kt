@@ -10,6 +10,7 @@ import com.bydmate.app.data.nativestack.FidCatalog
 internal object FidReadOnlyDiscovery {
     private const val BEGIN = "BYD_FID_PROBE_BEGIN_V1"
     private const val END = "BYD_FID_PROBE_END_V1"
+    private const val SERVICE = "BYD_HELPER_AUTOSERVICE="
     private const val MAIN = "com.ziada.bydsmartlauncher.FidReflectionProbe"
     private const val MAX_OUTPUT = 8192
     private val allowedFields = setOf(
@@ -41,7 +42,11 @@ internal object FidReadOnlyDiscovery {
         return "CLASSPATH='$apkPath' app_process /system/bin $MAIN"
     }
 
-    data class Result(val status: String, val catalog: FidCatalog = FidCatalog.EMPTY) {
+    data class Result(
+        val status: String,
+        val catalog: FidCatalog = FidCatalog.EMPTY,
+        val autoservice: String? = null
+    ) {
         val readyForCandidateProbes: Boolean get() =
             status == "catalog_candidate" &&
             catalog.deviceOf("STATISTIC") != null &&
@@ -81,6 +86,8 @@ internal object FidReadOnlyDiscovery {
             "turnSignalFidCandidate" to catalog.fidOf("Light.LIGHT_TURN_SIGNAL_LIGHT"),
             "firmwareVerified" to false,
             "helperPersistent" to false,
+            "helper" to if (autoservice != null) "one_shot_ready" else "probe_failed",
+            "autoservice" to autoservice,
             "vehicleWriteAuthorized" to false
         )
     }
@@ -94,8 +101,17 @@ internal object FidReadOnlyDiscovery {
         if (begin < 0 || end <= begin || lines.lastIndexOf(BEGIN) != begin ||
             lines.lastIndexOf(END) != end) return Result("probe_markers_invalid")
 
-        val data = lines.subList(begin + 1, end)
-        if (data.any { it == "BYD_FID_PROBE_UNAVAILABLE" }) return Result("firmware_classes_unavailable")
+        val payload = lines.subList(begin + 1, end)
+        val serviceLines = payload.filter { it.startsWith(SERVICE) }
+        if (serviceLines.size > 1) return Result("probe_output_invalid")
+        val autoservice = serviceLines.singleOrNull()?.removePrefix(SERVICE)
+        if (autoservice != null && autoservice !in setOf("responding", "unavailable", "unknown")) {
+            return Result("probe_output_invalid")
+        }
+        val data = payload.filterNot { it.startsWith(SERVICE) }
+        if ("BYD_FID_PROBE_UNAVAILABLE" in data) {
+            return Result("firmware_classes_unavailable", autoservice = autoservice)
+        }
         if (data.size > allowedFields.size) return Result("probe_output_unexpected")
 
         val seen = HashSet<String>()
@@ -113,6 +129,6 @@ internal object FidReadOnlyDiscovery {
             catalog.fidOf("Statistic.STATISTIC_ELEC_PERCENTAGE") != null &&
             catalog.fidOf("Statistic.STATISTIC_TOTAL_MILEAGE") != null
         ) "catalog_candidate" else "catalog_incomplete"
-        return Result(status, catalog)
+        return Result(status, catalog, autoservice)
     }
 }

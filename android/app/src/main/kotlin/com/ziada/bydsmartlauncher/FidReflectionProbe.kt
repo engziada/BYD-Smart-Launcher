@@ -1,5 +1,6 @@
 package com.ziada.bydsmartlauncher
 
+import android.os.IBinder
 import java.lang.reflect.Modifier
 
 /**
@@ -18,6 +19,15 @@ object FidReflectionProbe {
     @JvmStatic
     fun main(args: Array<String>) {
         println(BEGIN)
+        val service = try {
+            val manager = Class.forName("android.os.ServiceManager")
+            val binder = manager.getMethod("getService", String::class.java)
+                .invoke(null, "autoservice") as? IBinder
+            if (binder?.pingBinder() == true) "responding" else "unavailable"
+        } catch (_: Exception) {
+            "unknown"
+        }
+        println("BYD_HELPER_AUTOSERVICE=$service")
         try {
             val constants = Class.forName("android.hardware.bydauto.BYDAutoConstants")
             printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_STATISTIC")

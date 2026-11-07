@@ -29,6 +29,15 @@ internal class SafeAdbTransport(context: Context) {
     @Volatile private var state: String = "not_connected"
     @Volatile private var failureReason: String? = null
     @Volatile private var androidVersion: String? = null
+    @Volatile private var helperProbe: FidReadOnlyDiscovery.Result? = null
+
+    val helperState: String
+        get() = when {
+            state != "connected" -> "adb_required"
+            helperProbe == null -> "ready_to_probe"
+            helperProbe?.autoservice != null -> "one_shot_ready"
+            else -> "probe_failed"
+        }
 
     /** Must run on a dedicated worker: ADB may show an approval dialog for up to 60 seconds. */
     @Synchronized
@@ -36,6 +45,7 @@ internal class SafeAdbTransport(context: Context) {
         if (state == "connected" && client?.isConnected() == true) return diagnostics()
         state = "connecting"
         nativeStreamCatalog = null
+        helperProbe = null
         failureReason = null
         androidVersion = null
         return try {
@@ -147,7 +157,7 @@ internal class SafeAdbTransport(context: Context) {
             ?: return mapOf("ok" to false, "reason" to "invalid_apk_path")
         return try {
             val active = client ?: return mapOf("ok" to false, "reason" to "adb_not_connected")
-            val discovery = FidReadOnlyDiscovery.parse(active.exec(cmd))
+            val discovery = FidReadOnlyDiscovery.parse(active.exec(cmd)).also { helperProbe = it }
             if (!discovery.readyForCandidateProbes) {
                 return mapOf("ok" to false, "reason" to "firmware_catalog_unavailable")
             }
@@ -377,7 +387,7 @@ internal class SafeAdbTransport(context: Context) {
                 "firmwareVerified" to false, "vehicleWriteAuthorized" to false)
         return try {
             val active = client ?: return mapOf("ok" to false, "status" to "adb_not_connected")
-            val discovered = FidReadOnlyDiscovery.parse(active.exec(command))
+            val discovered = FidReadOnlyDiscovery.parse(active.exec(command)).also { helperProbe = it }
             val info = discovered.diagnostics().toMutableMap()
             if (!discovered.readyForCandidateProbes) return info
 
@@ -521,6 +531,7 @@ internal class SafeAdbTransport(context: Context) {
     @Synchronized
     fun disconnect(): Map<String, Any?> {
         nativeStreamCatalog = null
+        helperProbe = null
         client?.disconnect()
         client = null
         state = "not_connected"
@@ -537,7 +548,8 @@ internal class SafeAdbTransport(context: Context) {
         "androidRelease" to androidVersion,
         "transportHost" to "127.0.0.1",
         "transportPort" to 5555,
-        "helper" to "not_installed",
+        "helper" to helperState,
+        "autoservice" to helperProbe?.autoservice,
         "vehicleTelemetry" to "native_candidate_stream_preview_not_verified",
         "writeEnabled" to false,
     )

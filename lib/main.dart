@@ -12,6 +12,7 @@ import 'core/vehicle_snapshot.dart';
 import 'widgets/charging_flow_scene.dart';
 
 final ValueNotifier<bool> _lightMode = ValueNotifier<bool>(false);
+const MethodChannel _voice = MethodChannel('com.ziada.byd_smart_launcher/voice');
 
 Color get _background => _lightMode.value ? const Color(0xFFF4F7FA) : const Color(0xFF151C24);
 Color get _surface => _lightMode.value ? Colors.white : const Color(0xFF1C2530);
@@ -162,6 +163,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
 
   Future<void> _toggleDemo(bool enabled) async {
     _stopDashboard(reason: 'Dashboard updates stopped on mode change.');
+    await _voiceAction('demo', enabled);
+    if (!mounted) return;
     setState(() {
       _demo = enabled;
       _gateway.dispose();
@@ -176,6 +179,46 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     });
     await _connect();
     await _loadAutomationStatus();
+  }
+
+  Future<void> _voiceAction(String method, [Object? argument]) async {
+    try {
+      await _voice.invokeMethod<void>(method, argument);
+    } on MissingPluginException {
+      if (mounted && method != 'demo') _showVoiceUnavailable();
+    } on PlatformException {
+      if (mounted && method != 'demo') _showVoiceUnavailable();
+    }
+  }
+
+  void _showVoiceUnavailable() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Voice assistant is unavailable on this device.')),
+    );
+  }
+
+  Future<void> _typeVoiceCommand() async {
+    String command = '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ask the assistant'),
+        content: TextField(
+          autofocus: true,
+          maxLength: 120,
+          decoration: const InputDecoration(hintText: 'Battery level / نسبة البطارية'),
+          onChanged: (value) => command = value,
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, command), child: const Text('Ask')),
+        ],
+      ),
+    );
+    if (mounted && !_demo && result != null && result.trim().isNotEmpty) {
+      await _voiceAction('text', result.trim());
+    }
   }
 
 
@@ -1247,7 +1290,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         ]);
       case LauncherPage.settings:
         return _section('Settings & diagnostics',
-            'ADB handshake only; helper and vehicle telemetry are not yet installed', [
+            'Local ADB, read-only helper, and offline voice setup', [
           SwitchListTile(
             value: _lightMode.value,
             onChanged: (enabled) => _lightMode.value = enabled,
@@ -1263,6 +1306,20 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ),
           _info('ADB: ${_snapshot.adbState}',
               'Helper: ${_snapshot.helperState}', Icons.usb_outlined),
+          Wrap(spacing: 8, children: [
+            OutlinedButton(
+              onPressed: _demo ? null : () => _voiceAction('language', 'ar'),
+              child: const Text('صوت عربي'),
+            ),
+            OutlinedButton(
+              onPressed: _demo ? null : () => _voiceAction('language', 'en'),
+              child: const Text('English voice'),
+            ),
+            OutlinedButton(
+              onPressed: _demo ? null : _typeVoiceCommand,
+              child: const Text('Type an assistant command'),
+            ),
+          ]),
           const Text('Only use ADB setup while the car is safely parked. '
               'Enable the head-unit Wireless ADB setting first. '
               'This prototype will request ADB authorization, but cannot yet access '
@@ -1318,7 +1375,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('fids'),
                 icon: const Icon(Icons.manage_search),
-                label: const Text('Discover firmware FIDs (one-shot, read-only)'),
+                label: const Text('Probe vehicle helper and firmware FIDs'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('charging'),
@@ -1441,6 +1498,12 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                     style:
                         TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
                 const Spacer(),
+                IconButton(
+                  onPressed: _demo ? null : () => _voiceAction('start'),
+                  tooltip: 'Talk to the offline assistant',
+                  icon: const Icon(Icons.mic),
+                ),
+                const SizedBox(width: 8),
                 Text(
                   _demo
                       ? 'DEMO — no car access'
