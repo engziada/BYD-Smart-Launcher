@@ -1306,20 +1306,6 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ),
           _info('ADB: ${_snapshot.adbState}',
               'Helper: ${_snapshot.helperState}', Icons.usb_outlined),
-          Wrap(spacing: 8, children: [
-            OutlinedButton(
-              onPressed: _demo ? null : () => _voiceAction('language', 'ar'),
-              child: const Text('صوت عربي'),
-            ),
-            OutlinedButton(
-              onPressed: _demo ? null : () => _voiceAction('language', 'en'),
-              child: const Text('English voice'),
-            ),
-            OutlinedButton(
-              onPressed: _demo ? null : _typeVoiceCommand,
-              child: const Text('Type an assistant command'),
-            ),
-          ]),
           const Text('Only use ADB setup while the car is safely parked. '
               'Enable the head-unit Wireless ADB setting first. '
               'This prototype will request ADB authorization, but cannot yet access '
@@ -1405,6 +1391,22 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          const Text('Offline voice assistant'),
+          Wrap(spacing: 8, children: [
+            OutlinedButton(
+              onPressed: _demo ? null : () => _voiceAction('language', 'ar'),
+              child: const Text('صوت عربي'),
+            ),
+            OutlinedButton(
+              onPressed: _demo ? null : () => _voiceAction('language', 'en'),
+              child: const Text('English voice'),
+            ),
+            OutlinedButton(
+              onPressed: _demo ? null : _typeVoiceCommand,
+              child: const Text('Type an assistant command'),
+            ),
+          ]),
         ]);
     }
   }
