@@ -68,8 +68,8 @@ jobs:
           CHECKSUMS
           )
           cat > "$init_dir/byd-kotlin-compiler.gradle" <<'GRADLE'
-          gradle.beforeProject { project ->
-              project.repositories.maven {
+          gradle.beforeSettings { settings ->
+              settings.dependencyResolutionManagement.repositories.maven {
                   url = uri(new File(System.getenv('RUNNER_TEMP'), 'kotlin-build-tools'))
                   content { includeVersion('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '2.2.21') }
               }
