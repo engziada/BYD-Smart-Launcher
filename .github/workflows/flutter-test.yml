@@ -42,9 +42,16 @@ jobs:
         run: |
           set -euo pipefail
           wrapper=android/gradle/wrapper/gradle-wrapper.properties
+          archive="$RUNNER_TEMP/gradle-9.3.1-bin.zip"
+          checksum=b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06
           grep -Eq '^distributionUrl=.*gradle-9\.3\.1-(all|bin)\.zip$' "$wrapper"
-          sed -i -e '/^distributionUrl=/s/-all\.zip$/-bin.zip/' -e '/^distributionSha256Sum=/d' "$wrapper"
-          printf '\n%s\n' 'distributionSha256Sum=b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06' >> "$wrapper"
+          verify_archive() { printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check; }
+          if ! (curl -fLsS --max-time 60 https://services.gradle.org/distributions/gradle-9.3.1-bin.zip -o "$archive" && verify_archive); then
+            curl -fLsS --max-time 60 https://mirrors.cloud.tencent.com/gradle/gradle-9.3.1-bin.zip -o "$archive"
+            verify_archive
+          fi
+          sed -i -e '/^distributionUrl=/d' -e '/^distributionSha256Sum=/d' "$wrapper"
+          printf '\ndistributionUrl=file://%s\ndistributionSha256Sum=%s\n' "$archive" "$checksum" >> "$wrapper"
       - name: Run native Android unit tests
         run: cd android && ./gradlew testDebugUnitTest --no-daemon
       - name: Compile Android debug APK (not production)
