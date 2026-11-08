@@ -64,7 +64,9 @@ internal data class ComfortVoiceRequest(
 
         fun parse(text: String): ComfortVoiceRequest? {
             if (signedValue.containsMatchIn(text)) return null
-            val phrase = normalizeVoicePhrase(text).map { it.digitToIntOrNull()?.digitToChar() ?: it }.joinToString("")
+            val phrase = normalizeVoicePhrase(text)
+                .split(' ').joinToString(" ") { if (it == "التكيف") "التكييف" else it }
+                .map { it.digitToIntOrNull()?.digitToChar() ?: it }.joinToString("")
             for ((mapping, names) in aliases) {
                 for (name in names) {
                     if (phrase == "read $name" || phrase == "اقرا $name") return ComfortVoiceRequest(mapping)
@@ -77,7 +79,7 @@ internal data class ComfortVoiceRequest(
             if (phrase in setOf("turn on ac", "turn on a c", "turn on the ac", "turn on the a c", "شغل المكيف", "شغل التكييف")) {
                 return ComfortVoiceRequest(ComfortMapping.AC_POWER, 1)
             }
-            if (phrase in setOf("turn off ac", "turn off a c", "turn off the ac", "turn off the a c", "اطفي المكيف", "اطفي التكييف")) {
+            if (phrase in setOf("turn off ac", "turn off a c", "turn off the ac", "turn off the a c", "اطفي المكيف", "اطفي التكييف", "اطفئ التكييف")) {
                 return ComfortVoiceRequest(ComfortMapping.AC_POWER, 0)
             }
             if (phrase in setOf("lower the fan", "قلل سرعة المروحة")) return ComfortVoiceRequest(ComfortMapping.AC_FAN, lowerFan = true)

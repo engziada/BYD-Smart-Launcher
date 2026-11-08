@@ -103,9 +103,12 @@ internal class BundledSpeechRecognizer(private val assets: AssetManager, private
             val pcm = ShortArray(512)
             val deadline = SystemClock.elapsedRealtime() + 8_000L
             while (!current.cancelled && SystemClock.elapsedRealtime() < deadline) {
-                val count = recorder.read(pcm, 0, pcm.size, AudioRecord.READ_BLOCKING)
+                val count = recorder.read(pcm, 0, pcm.size, AudioRecord.READ_NON_BLOCKING)
                 if (count < 0) throw MicrophoneException("AudioRecord read failed ($count)")
-                if (count == 0) continue
+                if (count == 0) {
+                    SystemClock.sleep(10)
+                    continue
+                }
                 detector.acceptWaveform(FloatArray(count) { pcm[it] / 32768f })
                 if (!detector.empty()) return detector.front().samples
             }

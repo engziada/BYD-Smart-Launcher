@@ -25,4 +25,10 @@ class VoiceCommandTest {
         assertNull(ComfortVoiceRequest.parse("Set the fan to -two."))
         assertNull(ComfortVoiceRequest.parse("Set the fan to two and turn off AC."))
     }
+
+    @Test fun acceptsTheBundledModelSpellingOfTheArabicAcCommand() {
+        assertEquals(ComfortVoiceRequest(ComfortMapping.AC_POWER, 1), ComfortVoiceRequest.parse("شغل التكيف"))
+        assertEquals(ComfortVoiceRequest(ComfortMapping.AC_POWER, 0), ComfortVoiceRequest.parse("أطفئ التكييف"))
+        assertNull(ComfortVoiceRequest.parse("ما تشغلش التكيف"))
+    }
 }
