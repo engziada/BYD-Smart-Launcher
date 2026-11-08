@@ -340,6 +340,7 @@ class MainActivity : FlutterActivity() {
                 respond(when (it.status) {
                     "confirmed", "already_at_target" -> localized("$label: ${it.readback}.", "$label: ${it.readback}.")
                     "firmware_not_verified" -> localized("This control needs on-car verification.", "التحكم ده محتاج تحقق على العربية.")
+                    "outside_pilot_range" -> localized("This test allows fan levels 1 and 2 only.", "الاختبار ده للمستوى واحد واتنين بس.")
                     "cancelled" -> localized("Command cancelled.", "تم إلغاء الأمر.")
                     "write_outcome_unknown", "sent_unconfirmed" -> localized("Check the result on the car.", "راجع النتيجة على شاشة العربية.")
                     else -> localized("The control request was blocked or refused.", "أمر التحكم ما اتنفذش.")
@@ -360,7 +361,8 @@ class MainActivity : FlutterActivity() {
                             comfort.lowerFan && readback["${mapping.id}_writable"] != true -> respond(localized(
                                 "This control needs on-car verification.", "التحكم ده محتاج تحقق على العربية."
                             ))
-                            comfort.lowerFan && value > mapping.range.first -> requestWrite(value - 1)
+                            comfort.lowerFan && value > (readback["${mapping.id}_writeMin"] as? Int ?: mapping.range.first) ->
+                                requestWrite(value - 1)
                             else -> respond(localized("$label reading: $value.", "قراءة $label: $value."))
                         }
                     }
@@ -416,11 +418,13 @@ class MainActivity : FlutterActivity() {
     private fun confirmComfortWrite(
         mapping: ComfortMapping, value: Int, arabic: Boolean, reply: (ComfortWriteResult) -> Unit,
     ) {
+        val range = adb.comfortWriteRange(mapping)
         val blocked = when {
             !resumed || !voice.canStart -> "foreground_required"
             comfortDialog != null || comfortWriteInFlight -> "control_busy"
             value !in mapping.range -> "invalid_value"
-            !adb.comfortWriteAvailable(mapping) -> "firmware_not_verified"
+            range == null -> "firmware_not_verified"
+            value !in range -> "outside_pilot_range"
             else -> null
         }
         if (blocked != null) {
@@ -451,7 +455,9 @@ class MainActivity : FlutterActivity() {
                     val outcome = runCatching {
                         adb.writeComfort(mapping, value, confirmedAt) { generation == comfortGeneration }
                     }.getOrElse { ComfortWriteResult("write_outcome_unknown") }
-                    lastComfortWrite = outcome.asMap() + mapOf("id" to mapping.id, "atMs" to System.currentTimeMillis())
+                    lastComfortWrite = outcome.asMap() + mapOf(
+                        "id" to mapping.id, "requestedValue" to value, "atMs" to System.currentTimeMillis()
+                    )
                     mainHandler.post {
                         comfortWriteInFlight = false
                         reply(outcome)

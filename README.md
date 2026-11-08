@@ -3,9 +3,9 @@
 Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025** head unit.
 
 ## Current status
-**v0.4.3+11 — paired read/write comfort controls.** In Vehicle Controls, read A/C power, fan level, set temperature or any window position and review a new target value. Voice uses the same controls, for example “set fan to 3,” “read rear left window,” or «افتح الشباك اليمين». Each write requires native per-action confirmation and a reviewed exact firmware profile. The one-shot local ADB helper checks Park, zero speed and independent readback before reporting success. It sends no automatic retry.
+**v0.4.4+12 — parked A/C fan write test.** The exact firmware profile uses the owner's on-car comparison of Park, zero speed and fan level 1. The first write test is limited to changes between fan levels 1 and 2. It requires per-action confirmation and fresh Park and zero-speed checks. The one-shot local ADB helper reads the fan state before writing and verifies it afterward. Windows, A/C power and set temperature are read-only in this build.
 
-The checked-in profile list is empty pending on-car review. This build can read and export candidate mappings. Its write path cannot activate on an unreviewed car. To prepare the profile, export firmware identity, raw speed/gear and the seven comfort readbacks, and compare them against the OEM display. Use the full firmware SHA-256, independently validated gear/speed addresses, and exact command/readback pairs. OEM camera feeds, power and charging state, telemetry, and BMS counters remain read-only or separately gated.
+While parked with the factory fan at level 1, open **Vehicle Controls**, tap **Read climate and window state**, choose **A/C fan level**, and review target **2**. Check the factory display after confirmation. If the result matches, review target **1** to restore the original level. The voice equivalent is “set fan to 2” and still asks for confirmation. Export diagnostics after an unexpected result so the report includes the requested value and the latest outcome.
 
 **v0.4.2+10 — sensor and integration commissioning build.**
 

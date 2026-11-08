@@ -73,7 +73,7 @@ private class ComfortBinder(private val binder: IBinder, private val descriptor:
 
 internal object ComfortWriteProtocol {
     private val response = Regex(
-        """BYD_COMFORT_V1 (confirmed|already_at_target|invalid_value|mapping_not_verified|confirmation_expired|celsius_required|readback_unavailable|park_not_verified|write_rejected|write_outcome_unknown|sent_unconfirmed|firmware_not_verified|autoservice_unavailable) (-|[0-9]{1,3})"""
+        """BYD_COMFORT_V1 (confirmed|already_at_target|invalid_value|outside_pilot_range|mapping_not_verified|confirmation_expired|celsius_required|readback_unavailable|park_not_verified|write_rejected|write_outcome_unknown|sent_unconfirmed|firmware_not_verified|autoservice_unavailable) (-|[0-9]{1,3})"""
     )
 
     fun parse(raw: String?, mapping: ComfortMapping): ComfortWriteResult {

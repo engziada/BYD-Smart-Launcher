@@ -1,10 +1,13 @@
 package com.ziada.bydsmartlauncher
 
+import java.security.MessageDigest
+
 internal data class VehicleAddress(val device: Int, val fid: Int)
 internal data class VerifiedComfortAddress(
     val write: VehicleAddress,
     val readback: VehicleAddress,
     val invertedWindowPercentage: Boolean = false,
+    val pilotLevels: IntRange? = null,
 ) {
     fun matches(mapping: ComfortMapping): Boolean =
         write.device == mapping.deviceType && readback.device == mapping.deviceType &&
@@ -12,6 +15,8 @@ internal data class VerifiedComfortAddress(
             (!invertedWindowPercentage || mapping.isWindow)
 
     fun convert(value: Int): Int = if (invertedWindowPercentage) 100 - value else value
+
+    fun writeRange(mapping: ComfortMapping): IntRange = pilotLevels ?: mapping.range
 }
 
 internal data class VerifiedComfortProfile(
@@ -25,12 +30,33 @@ internal data class VerifiedComfortProfile(
         controls[mapping]?.takeIf { it.matches(mapping) }
 }
 
-/** Add exact fingerprint hashes only after recorded, independent on-car commissioning. */
+/** Exact build matches only. The fan entry is for a bounded on-car write test. */
 internal object VerifiedComfortProfiles {
-    private val profiles: Map<String, VerifiedComfortProfile> = emptyMap()
+    private val profiles = mapOf(
+        "e510a4f274e082bc1854aa0e2927fb561229535034a7a96d78d179e1afad0d33" to VerifiedComfortProfile(
+            gear = VehicleAddress(1011, 555745336),
+            parkCode = 1,
+            speed = VehicleAddress(1013, -1807745016),
+            celsiusUnit = null,
+            controls = mapOf(
+                ComfortMapping.AC_FAN to VerifiedComfortAddress(
+                    write = VehicleAddress(1000, 501219340),
+                    readback = VehicleAddress(1000, 1077936156),
+                    pilotLevels = 1..2,
+                ),
+            ),
+        ),
+    )
 
     fun forFingerprint(raw: String?): VerifiedComfortProfile? =
-        FirmwareDiagnostics.fullFingerprintDigest(raw)?.let(profiles::get)
+        FirmwareDiagnostics.fullFingerprintDigest(raw)?.let(::forFingerprintDigest)
+
+    internal fun forFingerprintDigest(digest: String): VerifiedComfortProfile? {
+        // Compare the complete digest without embedding the private export's literal value.
+        val key = MessageDigest.getInstance("SHA-256").digest(digest.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return profiles[key]
+    }
 }
 
 internal interface ComfortVehicleIo {
@@ -64,12 +90,17 @@ internal object ComfortWritePolicy {
         fun confirmedRecently() = nowMs() - confirmedAtMs in 0..CONFIRMATION_MS
         if (value !in mapping.range) return ComfortWriteResult("invalid_value")
         val address = profile.address(mapping) ?: return ComfortWriteResult("mapping_not_verified")
+        val writeRange = address.writeRange(mapping)
+        if (value !in writeRange) return ComfortWriteResult("outside_pilot_range")
         if (!confirmedRecently()) return ComfortWriteResult("confirmation_expired")
         if (mapping == ComfortMapping.AC_TEMPERATURE &&
             profile.celsiusUnit?.let(io::readInt) != 1) return ComfortWriteResult("celsius_required")
 
         val before = io.readInt(address.readback)?.takeIf { it in mapping.range }
             ?: return ComfortWriteResult("readback_unavailable")
+        if (address.convert(before) !in writeRange) {
+            return ComfortWriteResult("outside_pilot_range", address.convert(before))
+        }
         val target = address.convert(value)
         if (before == target) return ComfortWriteResult("already_at_target", value)
 

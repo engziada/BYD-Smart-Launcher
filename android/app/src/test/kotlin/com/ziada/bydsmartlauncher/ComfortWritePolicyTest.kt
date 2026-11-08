@@ -80,6 +80,19 @@ class ComfortWritePolicyTest {
         assertTrue(ac.writes.isEmpty())
     }
 
+    @Test fun fanPilotRequiresBothStartingAndTargetLevelsInRange() {
+        val fan = ComfortMapping.AC_FAN
+        val pilot = profile.copy(controls = mapOf(fan to controls.getValue(fan).copy(pilotLevels = 1..2)))
+        val io = FakeIo(fan)
+        assertEquals("outside_pilot_range", io.execute(value = 2, settings = pilot).status)
+        io.state = 1
+        assertEquals("outside_pilot_range", io.execute(value = 3, settings = pilot).status)
+        assertTrue(io.writes.isEmpty())
+        assertEquals(ComfortWriteResult("confirmed", 2), io.execute(value = 2, settings = pilot))
+        assertEquals(ComfortWriteResult("confirmed", 1), io.execute(value = 1, settings = pilot))
+        assertEquals(listOf(2, 1), io.writes.map { it.second })
+    }
+
     @Test fun validatesHelperFramesAndBilingualCommands() {
         val fan = ComfortMapping.AC_FAN
         assertEquals(ComfortWriteResult("confirmed", 4), ComfortWriteProtocol.parse("BYD_COMFORT_V1 confirmed 4", fan))

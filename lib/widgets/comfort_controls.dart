@@ -62,6 +62,7 @@ class _ComfortControlsState extends State<ComfortControls> {
           'write_outcome_unknown' || 'sent_unconfirmed' => 'Check the factory display before issuing another command.',
           'write_rejected' => 'The vehicle service rejected the command.',
           'celsius_required' => 'The vehicle must report Celsius for this command.',
+          'outside_pilot_range' => 'Set the factory fan to level 1 or 2 before using this test.',
           _ => 'Control unavailable (${result['status'] ?? 'unknown'}).',
         };
       });
@@ -79,6 +80,8 @@ class _ComfortControlsState extends State<ComfortControls> {
     final control = _controls[_selected]!;
     final readback = widget.readings['${_selected}_state'];
     final writable = widget.readings['${_selected}_writable'] == true;
+    final writeMin = widget.readings['${_selected}_writeMin'] as int?;
+    final writeMax = widget.readings['${_selected}_writeMax'] as int?;
     final value = int.tryParse(_target.text);
     final available = !widget.busy && !widget.demo && !_writing;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -98,19 +101,28 @@ class _ComfortControlsState extends State<ComfortControls> {
             DropdownMenuItem(value: entry.key, child: Text(entry.value.$1))).toList(),
       ),
       Text('${writable ? 'Vehicle readback' : 'Raw state candidate'}: ${readback ?? '—'}'),
-      if (!writable)
+      if (!writable && writeMin != null && writeMax != null)
+        Text('Set the factory control to a level from $writeMin to $writeMax, then read it again.')
+      else if (!writable)
         const Text('Write access needs a reviewed firmware profile and a valid readback.'),
       TextField(
         controller: _target,
         enabled: available && writable,
         keyboardType: TextInputType.number,
         inputFormatters: [LengthLimitingTextInputFormatter(4)],
-        decoration: InputDecoration(labelText: 'Target value', helperText: control.$4),
+        decoration: InputDecoration(
+          labelText: 'Target value',
+          helperText: writeMin != null && writeMax != null && (writeMin != control.$2 || writeMax != control.$3)
+              ? 'Parked test range $writeMin–$writeMax'
+              : control.$4,
+        ),
         onChanged: (_) => setState(() => _status = null),
       ),
       FilledButton(
         onPressed: available && writable && value != null &&
-            value >= control.$2 && value <= control.$3 ? () => _apply(value) : null,
+            value >= (writeMin ?? control.$2) && value <= (writeMax ?? control.$3)
+            ? () => _apply(value)
+            : null,
         child: const Text('Review and apply'),
       ),
       if (widget.busy || _writing) const LinearProgressIndicator(),

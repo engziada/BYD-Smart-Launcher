@@ -47,7 +47,10 @@ internal class DiagnosticReportWriter(private val context: Context) {
         private val COMFORT_KEYS = setOf("ok", "status", "vehicleWriteAuthorized") +
             ComfortMapping.entries.flatMap {
                 val name = it.name.lowercase(java.util.Locale.ROOT)
-                listOf("${name}_device", "${name}_commandFid", "${name}_readbackFid", "${name}_state", "${name}_writable")
+                listOf(
+                    "${name}_device", "${name}_commandFid", "${name}_readbackFid", "${name}_state",
+                    "${name}_writable", "${name}_writeMin", "${name}_writeMax"
+                )
             }
         private val CHARGING_KEYS = setOf(
             "ok", "status", "capturedAtEpochMs", "catalogResolved", "gunStateRaw", "gunKindCandidate",
@@ -107,7 +110,9 @@ internal class DiagnosticReportWriter(private val context: Context) {
         val document = JSONObject()
             .put("schema", 6)
             .put("exportedAtUtc", Instant.now().toString())
-            .put("verification", "READ_ONLY_UNVERIFIED_NO_VEHICLE_WRITES")
+            .put("verification", if (transport["writeEnabled"] == true || comfortWrite.isNotEmpty()) {
+                "PARKED_COMFORT_WRITE_PILOT"
+            } else "READ_ONLY_UNVERIFIED_NO_VEHICLE_WRITES")
             .put("transport", safeFields(transport, TRANSPORT_KEYS))
             .put("firmware", safeFields(firmware, FIRMWARE_KEYS))
             .put("telemetryCandidate", safeFields(telemetry, TELEMETRY_KEYS))
@@ -117,7 +122,7 @@ internal class DiagnosticReportWriter(private val context: Context) {
             .put("motionCandidate", safeFields(motion, MOTION_KEYS))
             .put("ownerSensorsCandidate", safeFields(ownerSensors, OWNER_SENSOR_KEYS))
             .put("comfortMappingsCandidate", safeFields(comfortMappings, COMFORT_KEYS))
-            .put("lastComfortWrite", safeFields(comfortWrite, setOf("ok", "status", "id", "readback", "atMs")))
+            .put("lastComfortWrite", safeFields(comfortWrite, setOf("ok", "status", "id", "requestedValue", "readback", "atMs")))
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "byd-diagnostics-${System.currentTimeMillis()}.json")

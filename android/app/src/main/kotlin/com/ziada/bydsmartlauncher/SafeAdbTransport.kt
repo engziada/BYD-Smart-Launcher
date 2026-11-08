@@ -556,8 +556,14 @@ internal class SafeAdbTransport(context: Context) {
                         it.readback == VehicleAddress(device, stateFid)
                 }
                 val valid = value?.takeIf { it in mapping.range }
-                readings["${prefix}_state"] = if (valid != null && reviewed != null) reviewed.convert(valid) else valid
-                readings["${prefix}_writable"] = reviewed != null && valid != null
+                val displayValue = if (valid != null && reviewed != null) reviewed.convert(valid) else valid
+                readings["${prefix}_state"] = displayValue
+                val range = reviewed?.writeRange(mapping)
+                readings["${prefix}_writable"] = range != null && displayValue != null && displayValue in range
+                if (range != null) {
+                    readings["${prefix}_writeMin"] = range.first
+                    readings["${prefix}_writeMax"] = range.last
+                }
             }
         }
         readings["ok"] = readings.isNotEmpty()
@@ -567,14 +573,20 @@ internal class SafeAdbTransport(context: Context) {
     }
 
     fun comfortWriteAvailable(mapping: ComfortMapping): Boolean =
-        transportState == "connected" && VerifiedComfortProfiles.forFingerprint(Build.FINGERPRINT)?.address(mapping) != null
+        comfortWriteRange(mapping) != null
+
+    fun comfortWriteRange(mapping: ComfortMapping): IntRange? =
+        if (transportState == "connected") {
+            VerifiedComfortProfiles.forFingerprint(Build.FINGERPRINT)?.address(mapping)?.writeRange(mapping)
+        } else null
 
     @Synchronized
     fun writeComfort(
         mapping: ComfortMapping, value: Int, confirmedAtMs: Long, stillForeground: () -> Boolean,
     ): ComfortWriteResult {
         val active = client?.takeIf { hasConnectedSession() } ?: return ComfortWriteResult("adb_not_connected")
-        if (!comfortWriteAvailable(mapping)) return ComfortWriteResult("firmware_not_verified")
+        val range = comfortWriteRange(mapping) ?: return ComfortWriteResult("firmware_not_verified")
+        if (value !in range) return ComfortWriteResult("outside_pilot_range")
         val command = FidReadOnlyDiscovery.comfortWriteCommand(appContext.packageCodePath, mapping, value, confirmedAtMs)
             ?: return ComfortWriteResult("invalid_value")
         if (!stillForeground() || SystemClock.elapsedRealtime() - confirmedAtMs !in 0..3_000) {
@@ -651,7 +663,7 @@ internal class SafeAdbTransport(context: Context) {
         "helper" to helperState,
         "autoservice" to helperProbe?.autoservice,
         "vehicleTelemetry" to "native_candidate_stream_preview_not_verified",
-        "writeEnabled" to false,
+        "writeEnabled" to ComfortMapping.entries.any(::comfortWriteAvailable),
     )
 
     val transportState: String get() = state
