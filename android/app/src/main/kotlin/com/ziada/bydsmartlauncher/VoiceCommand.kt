@@ -39,6 +39,19 @@ internal data class ComfortVoiceRequest(
     val lowerFan: Boolean = false,
 ) {
     companion object {
+        private val spokenNumbers = mapOf(
+            "zero" to 0, "صفر" to 0,
+            "one" to 1, "واحد" to 1,
+            "two" to 2, "اتنين" to 2, "اثنين" to 2,
+            "three" to 3, "تلاتة" to 3, "ثلاثة" to 3,
+            "four" to 4, "اربعة" to 4,
+            "five" to 5, "خمسة" to 5,
+            "six" to 6, "ستة" to 6,
+            "seven" to 7, "سبعة" to 7,
+        )
+        private val signedValue = Regex("[+−–—-]\\s*\\p{Nd}|(?:\\bto|على)\\s*[+−–—-]\\s*\\p{L}", RegexOption.IGNORE_CASE)
+        private val setTarget = Regex("(?:set|اضبط|ظبط) (?:the )?(.+) (?:to|على) ([0-9]{1,3}|\\p{L}+)")
+
         private val aliases = mapOf(
             ComfortMapping.AC_POWER to listOf("ac power", "a c power", "المكيف", "التكييف"),
             ComfortMapping.AC_FAN to listOf("fan", "fan level", "سرعة المروحة"),
@@ -50,7 +63,7 @@ internal data class ComfortVoiceRequest(
         )
 
         fun parse(text: String): ComfortVoiceRequest? {
-            if (Regex("[+−–—-]\\s*\\p{Nd}").containsMatchIn(text)) return null
+            if (signedValue.containsMatchIn(text)) return null
             val phrase = normalizeVoicePhrase(text).map { it.digitToIntOrNull()?.digitToChar() ?: it }.joinToString("")
             for ((mapping, names) in aliases) {
                 for (name in names) {
@@ -68,10 +81,11 @@ internal data class ComfortVoiceRequest(
                 return ComfortVoiceRequest(ComfortMapping.AC_POWER, 0)
             }
             if (phrase in setOf("lower the fan", "قلل سرعة المروحة")) return ComfortVoiceRequest(ComfortMapping.AC_FAN, lowerFan = true)
-            val match = Regex("(?:set|اضبط|ظبط) (.+) (?:to|على) ([0-9]{1,3})").matchEntire(phrase) ?: return null
+            val match = setTarget.matchEntire(phrase) ?: return null
             val mapping = aliases.entries.firstOrNull { match.groupValues[1] in it.value }?.key ?: return null
-            val value = match.groupValues[2].toInt().takeIf { it in mapping.range } ?: return null
-            return ComfortVoiceRequest(mapping, value)
+            val target = match.groupValues[2]
+            val value = target.toIntOrNull() ?: spokenNumbers[target] ?: return null
+            return if (value in mapping.range) ComfortVoiceRequest(mapping, value) else null
         }
     }
 }

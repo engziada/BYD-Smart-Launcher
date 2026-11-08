@@ -16,7 +16,7 @@ import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import java.util.Locale
 
-/** Push-to-talk. Audio is routed only to Android's on-device speech provider. */
+/** Push-to-talk using Android's on-device provider or the bundled offline model. */
 internal class OfflineVoiceAssistant(
     private val activity: Activity,
     private val answer: (String, Boolean, (String) -> Unit) -> Unit
@@ -28,10 +28,12 @@ internal class OfflineVoiceAssistant(
         show(localized("Listening timed out.", "انتهى وقت الاستماع."))
     }
     private var recognizer: SpeechRecognizer? = null
+    private var bundled: BundledSpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var pendingSpeech: String? = null
     private var awaitingPermission = false
+    private var startAfterPermission = false
     private var foreground = false
     private var demo = false
     private var request = 0L
@@ -44,7 +46,12 @@ internal class OfflineVoiceAssistant(
 
     fun setForeground(active: Boolean) {
         foreground = active
-        if (!active) stop()
+        if (!active) {
+            stop()
+        } else if (startAfterPermission) {
+            startAfterPermission = false
+            start()
+        }
     }
 
     fun setDemo(enabled: Boolean) {
@@ -60,12 +67,7 @@ internal class OfflineVoiceAssistant(
     }
 
     fun start() {
-        if (!canStart || recognizer != null || awaitingPermission) return
-        if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(activity)) {
-            show(localized("Offline speech recognition is unavailable on this head unit.",
-                "التعرّف على الصوت بدون إنترنت غير متاح على هذه الشاشة."))
-            return
-        }
+        if (!canStart || recognizer != null || bundled?.active == true || awaitingPermission) return
         if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             awaitingPermission = true
             activity.requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), MIC_REQUEST)
@@ -74,6 +76,11 @@ internal class OfflineVoiceAssistant(
         pendingSpeech = null
         tts?.stop()
         request++
+        if (Build.VERSION.SDK_INT < 31 ||
+            !runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(activity) }.getOrDefault(false)) {
+            startBundled()
+            return
+        }
         try {
             val current = SpeechRecognizer.createOnDeviceSpeechRecognizer(activity)
             recognizer = current
@@ -90,12 +97,13 @@ internal class OfflineVoiceAssistant(
                 override fun onError(error: Int) {
                     if (recognizer !== current) return
                     stopListening()
-                    show(when (error) {
+                    when (error) {
                         SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE, SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ->
-                            localized("The selected offline speech language is unavailable.",
-                                "اللغة المختارة غير متاحة للتعرّف على الصوت بدون إنترنت.")
-                        else -> localized("Could not recognize that command.", "ماقدرتش أفهم الأمر.")
-                    })
+                            startBundled()
+                        SpeechRecognizer.ERROR_CLIENT, SpeechRecognizer.ERROR_SERVER, SpeechRecognizer.ERROR_SERVER_DISCONNECTED,
+                        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> startBundled()
+                        else -> show(localized("Could not recognize that command.", "ماقدرتش أفهم الأمر."))
+                    }
                 }
                 override fun onResults(results: Bundle?) {
                     if (recognizer !== current) return
@@ -113,16 +121,37 @@ internal class OfflineVoiceAssistant(
             handler.postDelayed(timeout, 12_000L)
         } catch (_: RuntimeException) {
             stopListening()
-            show(localized("Could not start offline speech recognition.", "تعذّر تشغيل التعرّف على الصوت."))
+            startBundled()
+        }
+    }
+
+    private fun startBundled() {
+        if (!canStart) return
+        val engine = bundled ?: BundledSpeechRecognizer(activity.assets, handler).also { bundled = it }
+        engine.start(
+            language = locale.language,
+            onListening = { show(localized("Listening…", "سامعك…")) },
+            onDecoding = { show(localized("Recognizing offline…", "بفهم الأمر من غير إنترنت…")) },
+        ) { text, failure ->
+            when {
+                failure == BundledSpeechRecognizer.Failure.MICROPHONE ->
+                    show(localized("Could not open the microphone on this head unit.", "ماقدرتش أشغّل الميكروفون على الشاشة دي."))
+                failure != null ->
+                    show(localized("Could not start the offline speech engine.", "ماقدرتش أشغّل التعرّف على الكلام أوفلاين."))
+                text.isBlank() -> show(localized("No speech detected. Tap the microphone and try again.",
+                    "مسمعتش كلام. دوس على المايك وجرّب تاني."))
+                else -> answerCommand(text)
+            }
         }
     }
 
     fun onPermissionResult(granted: Boolean) {
         val requested = awaitingPermission
         awaitingPermission = false
-        if (requested && foreground && !demo) {
-            if (granted) start() else show(localized("Microphone permission denied.", "تم رفض إذن الميكروفون."))
-        }
+        if (!requested || demo) return
+        if (granted && foreground) start()
+        else if (granted) startAfterPermission = true
+        else show(localized("Microphone permission denied.", "تم رفض إذن الميكروفون."))
     }
 
     fun submitText(text: String) {
@@ -172,10 +201,12 @@ internal class OfflineVoiceAssistant(
         val current = recognizer
         recognizer = null
         current?.destroy()
+        bundled?.cancel()
     }
 
     private fun stop() {
         request++
+        startAfterPermission = false
         stopListening()
         pendingSpeech = null
         tts?.stop()
@@ -183,6 +214,8 @@ internal class OfflineVoiceAssistant(
 
     fun close() {
         stop()
+        bundled?.close()
+        bundled = null
         tts?.shutdown()
         tts = null
     }

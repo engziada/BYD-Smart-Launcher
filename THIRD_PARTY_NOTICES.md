@@ -11,3 +11,5 @@ Changes in this project: decision/backoff copied as portable pure Kotlin without
 The BYDMate source remains copyrighted by its author. No Kinex APK binaries or assets are redistributed.
 
 The firmware FID catalog parser (`data/nativestack/FidCatalog.kt`) is also adapted from BYDMate v4.0.1 under the same noncommercial license. This parser is not connected to a live BYD helper or vehicle write path in this version.
+
+The bundled offline speech runtime uses [sherpa-onnx v2.0.1](https://github.com/k2-fsa/sherpa-onnx/releases/tag/v2.0.1) (Apache 2.0), [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT), the [multilingual Whisper Tiny model](https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny) (MIT, OpenAI), and [Silero VAD](https://github.com/snakers4/silero-vad) (MIT). Their license and ONNX Runtime third-party notice files are included in the APK under `assets/offline-voice/licenses/`.

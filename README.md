@@ -3,6 +3,8 @@
 Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025** head unit.
 
 ## Current status
+**v0.4.6+14 — bundled offline speech recognition.** If the head unit lacks Android's offline speech service or language, the microphone uses the bundled English and Arabic Whisper model. Tap the microphone, allow microphone permission, wait for “Listening,” and speak a short command in the language selected in Settings. Try “Set the fan to two” or «ظبط سرعة المروحة على اتنين» while parked with ADB connected and the factory fan at 1. Vehicle writes still require confirmation. The reply appears on screen. The Android text-to-speech engine can also speak it when it has an installed offline voice for that language.
+
 **v0.4.5+13 — parked A/C power write test.** On November 8, 2026, the Song Plus owner reported that v0.4.4 successfully changed the fan from 1 to 2 and back to 1 on the matching Dylan 5 firmware. The result covers those two fan levels. This build adds A/C power as a test on the same firmware. Each write requires individual confirmation, fresh Park and zero-speed checks, and a valid readback. Windows and set temperature are read-only.
 
 While parked with the factory A/C on, connect ADB and open **Vehicle Controls → Read climate and window state → A/C power**. Review target **0** to turn it off. Compare the factory display with the launcher readback. If both show Off, review target **1** to restore On and compare again. You can also say “Turn off the A/C” and “Turn on the A/C,” or «اطفي التكييف» and «شغل التكييف». Each voice command opens the same confirmation dialog. The diagnostics export records the most recent command and its readback.
@@ -47,7 +49,7 @@ In **Settings**, connect ADB and select **Probe vehicle helper and firmware FIDs
 - This repository is **currently public**. Never add Telegram tokens, credentials, vehicle identifiers, or diagnostic dumps containing personal data.
 
 ## Build
-Install Flutter, Android SDK, JDK 17 and use `flutter pub get && flutter test && flutter build apk --debug`. The Android wrapper may need generation on a new host via `flutter create --platforms=android --project-name byd_smart_launcher --org com.ziada .`; review any generated changes and preserve the project's Kotlin files. The independent native policy tests run with `bash scripts/test-native-core.sh` (requires `kotlinc`).
+Install Flutter, Android SDK and JDK 17. Run `flutter pub get && flutter test`, then `bash scripts/prepare-offline-voice.sh` to fetch and verify the speech runtime and model before `flutter build apk --debug`. The prepared files stay local to the checkout and are included in the APK. The Android wrapper may need generation on a new host via `flutter create --platforms=android --project-name byd_smart_launcher --org com.ziada .`. Review any generated changes and preserve the project's Kotlin files. The independent native policy tests run with `bash scripts/test-native-core.sh` (requires `kotlinc`).
 
 ## Range Planner and raw research counters (NOT for driving decisions)
 
