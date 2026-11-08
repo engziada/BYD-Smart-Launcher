@@ -37,7 +37,7 @@ jobs:
       - run: flutter test
       - name: Generate missing standard Android wrapper files
         run: flutter create --platforms=android --project-name byd_smart_launcher --org com.ziada .
-      - name: Pin the Gradle binary distribution
+      - name: Prepare checksummed Gradle and Kotlin build tools
         shell: bash
         run: |
           set -euo pipefail
@@ -52,6 +52,29 @@ jobs:
           fi
           sed -i -e '/^distributionUrl=/d' -e '/^distributionSha256Sum=/d' "$wrapper"
           printf '\ndistributionUrl=file://%s\ndistributionSha256Sum=%s\n' "$archive" "$checksum" >> "$wrapper"
+
+          # Maven Central's compiler JAR redirect can time out on the runner.
+          # Gradle bundles the identical artifact. Keep the original Maven POM.
+          module=org/jetbrains/kotlin/kotlin-compiler-embeddable/2.2.21
+          artifact=kotlin-compiler-embeddable-2.2.21
+          repo="$RUNNER_TEMP/kotlin-build-tools"
+          init_dir="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+          mkdir -p "$repo/$module" "$init_dir"
+          unzip -p "$archive" "gradle-9.3.1/lib/$artifact.jar" > "$repo/$module/$artifact.jar"
+          curl -fLsS --max-time 30 "https://repo.maven.apache.org/maven2/$module/$artifact.pom" -o "$repo/$module/$artifact.pom"
+          (cd "$repo/$module"; sha256sum --check <<'CHECKSUMS'
+          9588fa696ac5507af764fd5660df6894185e12704ec1bc3f5cb772af4987f295  kotlin-compiler-embeddable-2.2.21.jar
+          0b33c64f2622ba3bc8283378bdb7505f2be330a2275807038ad54359b33ddf9b  kotlin-compiler-embeddable-2.2.21.pom
+          CHECKSUMS
+          )
+          cat > "$init_dir/byd-kotlin-compiler.gradle" <<'GRADLE'
+          gradle.beforeProject { project ->
+              project.repositories.maven {
+                  url = uri(new File(System.getenv('RUNNER_TEMP'), 'kotlin-build-tools'))
+                  content { includeVersion('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '2.2.21') }
+              }
+          }
+          GRADLE
       - name: Run native Android unit tests
         run: cd android && ./gradlew testDebugUnitTest --no-daemon
       - name: Compile Android debug APK (not production)
