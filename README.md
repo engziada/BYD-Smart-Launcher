@@ -3,9 +3,9 @@
 Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025** head unit.
 
 ## Current status
-**v0.4.4+12 — parked A/C fan write test.** The exact firmware profile uses the owner's on-car comparison of Park, zero speed and fan level 1. The first write test is limited to changes between fan levels 1 and 2. It requires per-action confirmation and fresh Park and zero-speed checks. The one-shot local ADB helper reads the fan state before writing and verifies it afterward. Windows, A/C power and set temperature are read-only in this build.
+**v0.4.5+13 — parked A/C power write test.** On November 8, 2026, the Song Plus owner reported that v0.4.4 successfully changed the fan from 1 to 2 and back to 1 on the matching Dylan 5 firmware. The result covers those two fan levels. This build adds A/C power as a test on the same firmware. Each write requires individual confirmation, fresh Park and zero-speed checks, and a valid readback. Windows and set temperature are read-only.
 
-While parked with the factory fan at level 1, open **Vehicle Controls**, tap **Read climate and window state**, choose **A/C fan level**, and review target **2**. Check the factory display after confirmation. If the result matches, review target **1** to restore the original level. The voice equivalent is “set fan to 2” and still asks for confirmation. Export diagnostics after an unexpected result so the report includes the requested value and the latest outcome.
+While parked with the factory A/C on, connect ADB and open **Vehicle Controls → Read climate and window state → A/C power**. Review target **0** to turn it off. Compare the factory display with the launcher readback. If both show Off, review target **1** to restore On and compare again. You can also say “Turn off the A/C” and “Turn on the A/C,” or «اطفي التكييف» and «شغل التكييف». Each voice command opens the same confirmation dialog. The diagnostics export records the most recent command and its readback.
 
 **v0.4.2+10 — sensor and integration commissioning build.**
 

@@ -36,6 +36,12 @@ class _ComfortControlsState extends State<ComfortControls> {
   bool _writing = false;
   String? _status;
 
+  String _displayState(Object? value) => switch ((_selected, value)) {
+        ('ac_power', 0) => 'Off',
+        ('ac_power', 1) => 'On',
+        _ => value?.toString() ?? '—',
+      };
+
   @override
   void dispose() {
     _target.dispose();
@@ -50,7 +56,7 @@ class _ComfortControlsState extends State<ComfortControls> {
     try {
       final result = await widget.write(_selected, value);
       if (!mounted) return;
-      final state = result['readback'];
+      final state = _displayState(result['readback']);
       setState(() {
         _status = switch (result['status']) {
           'confirmed' => 'Confirmed by vehicle readback: $state.',
@@ -100,7 +106,7 @@ class _ComfortControlsState extends State<ComfortControls> {
         items: _controls.entries.map((entry) =>
             DropdownMenuItem(value: entry.key, child: Text(entry.value.$1))).toList(),
       ),
-      Text('${writable ? 'Vehicle readback' : 'Raw state candidate'}: ${readback ?? '—'}'),
+      Text('${writable ? 'Vehicle readback' : 'Raw state candidate'}: ${_displayState(readback)}'),
       if (!writable && writeMin != null && writeMax != null)
         Text('Set the factory control to a level from $writeMin to $writeMax, then read it again.')
       else if (!writable)

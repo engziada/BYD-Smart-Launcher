@@ -336,9 +336,16 @@ class MainActivity : FlutterActivity() {
         if (comfort != null) {
             val mapping = comfort.mapping
             val label = if (arabic) mapping.arabicLabel else mapping.label
+            fun spokenState(value: Int?) = when {
+                value == null -> localized("State unavailable", "الحالة غير متاحة")
+                mapping == ComfortMapping.AC_POWER -> if (value == 1) {
+                    localized("On", "شغّال")
+                } else localized("Off", "مقفول")
+                else -> value.toString()
+            }
             fun requestWrite(value: Int) = confirmComfortWrite(mapping, value, arabic) {
                 respond(when (it.status) {
-                    "confirmed", "already_at_target" -> localized("$label: ${it.readback}.", "$label: ${it.readback}.")
+                    "confirmed", "already_at_target" -> "$label: ${spokenState(it.readback)}."
                     "firmware_not_verified" -> localized("This control needs on-car verification.", "التحكم ده محتاج تحقق على العربية.")
                     "outside_pilot_range" -> localized("This test allows fan levels 1 and 2 only.", "الاختبار ده للمستوى واحد واتنين بس.")
                     "cancelled" -> localized("Command cancelled.", "تم إلغاء الأمر.")
@@ -363,7 +370,7 @@ class MainActivity : FlutterActivity() {
                             ))
                             comfort.lowerFan && value > (readback["${mapping.id}_writeMin"] as? Int ?: mapping.range.first) ->
                                 requestWrite(value - 1)
-                            else -> respond(localized("$label reading: $value.", "قراءة $label: $value."))
+                            else -> respond(localized("$label reading: ${spokenState(value)}.", "قراءة $label: ${spokenState(value)}."))
                         }
                     }
                 }

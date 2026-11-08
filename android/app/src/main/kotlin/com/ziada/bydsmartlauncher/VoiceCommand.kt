@@ -40,7 +40,7 @@ internal data class ComfortVoiceRequest(
 ) {
     companion object {
         private val aliases = mapOf(
-            ComfortMapping.AC_POWER to listOf("ac power", "a c power", "المكيف"),
+            ComfortMapping.AC_POWER to listOf("ac power", "a c power", "المكيف", "التكييف"),
             ComfortMapping.AC_FAN to listOf("fan", "fan level", "سرعة المروحة"),
             ComfortMapping.AC_TEMPERATURE to listOf("ac temperature", "a c temperature", "درجة حرارة المكيف"),
             ComfortMapping.FRONT_LEFT to listOf("front left window", "left window", "الشباك الشمال"),
@@ -61,8 +61,12 @@ internal data class ComfortVoiceRequest(
                     }
                 }
             }
-            if (phrase in setOf("turn on ac", "turn on a c", "شغل المكيف")) return ComfortVoiceRequest(ComfortMapping.AC_POWER, 1)
-            if (phrase in setOf("turn off ac", "turn off a c", "اطفي المكيف")) return ComfortVoiceRequest(ComfortMapping.AC_POWER, 0)
+            if (phrase in setOf("turn on ac", "turn on a c", "turn on the ac", "turn on the a c", "شغل المكيف", "شغل التكييف")) {
+                return ComfortVoiceRequest(ComfortMapping.AC_POWER, 1)
+            }
+            if (phrase in setOf("turn off ac", "turn off a c", "turn off the ac", "turn off the a c", "اطفي المكيف", "اطفي التكييف")) {
+                return ComfortVoiceRequest(ComfortMapping.AC_POWER, 0)
+            }
             if (phrase in setOf("lower the fan", "قلل سرعة المروحة")) return ComfortVoiceRequest(ComfortMapping.AC_FAN, lowerFan = true)
             val match = Regex("(?:set|اضبط|ظبط) (.+) (?:to|على) ([0-9]{1,3})").matchEntire(phrase) ?: return null
             val mapping = aliases.entries.firstOrNull { match.groupValues[1] in it.value }?.key ?: return null

@@ -30,7 +30,7 @@ internal data class VerifiedComfortProfile(
         controls[mapping]?.takeIf { it.matches(mapping) }
 }
 
-/** Exact build matches only. The fan entry is for a bounded on-car write test. */
+/** Exact build matches only. Fan levels 1–2 passed the parked test. A/C power is the next pilot. */
 internal object VerifiedComfortProfiles {
     private val profiles = mapOf(
         "e510a4f274e082bc1854aa0e2927fb561229535034a7a96d78d179e1afad0d33" to VerifiedComfortProfile(
@@ -39,6 +39,10 @@ internal object VerifiedComfortProfiles {
             speed = VehicleAddress(1013, -1807745016),
             celsiusUnit = null,
             controls = mapOf(
+                ComfortMapping.AC_POWER to VerifiedComfortAddress(
+                    write = VehicleAddress(1000, 501219364),
+                    readback = VehicleAddress(1000, 1077936144),
+                ),
                 ComfortMapping.AC_FAN to VerifiedComfortAddress(
                     write = VehicleAddress(1000, 501219340),
                     readback = VehicleAddress(1000, 1077936156),

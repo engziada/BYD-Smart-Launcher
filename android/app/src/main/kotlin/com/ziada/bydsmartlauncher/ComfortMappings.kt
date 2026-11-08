@@ -31,7 +31,7 @@ internal enum class ComfortMapping(
         REAR_RIGHT -> "Rear right window"
     }
     val arabicLabel get() = when (this) {
-        AC_POWER -> "تشغيل المكيف"
+        AC_POWER -> "حالة التكييف"
         AC_FAN -> "سرعة المروحة"
         AC_TEMPERATURE -> "درجة حرارة المكيف"
         FRONT_LEFT -> "الشباك الأمامي الشمال"

@@ -93,6 +93,18 @@ class ComfortWritePolicyTest {
         assertEquals(listOf(2, 1), io.writes.map { it.second })
     }
 
+    @Test fun acPowerTurnsOffAndRestoresOnThroughVoiceTargets() {
+        val mapping = ComfortMapping.AC_POWER
+        val io = FakeIo(mapping).apply { state = 1 }
+        val off = ComfortVoiceRequest.parse("Turn off the A/C")
+        val on = ComfortVoiceRequest.parse("شغل التكييف")
+        assertEquals(ComfortVoiceRequest(mapping, 0), off)
+        assertEquals(ComfortVoiceRequest(mapping, 1), on)
+        assertEquals(ComfortWriteResult("confirmed", 0), io.execute(value = off!!.target!!))
+        assertEquals(ComfortWriteResult("confirmed", 1), io.execute(value = on!!.target!!))
+        assertEquals(listOf(io.address.write to 0, io.address.write to 1), io.writes)
+    }
+
     @Test fun validatesHelperFramesAndBilingualCommands() {
         val fan = ComfortMapping.AC_FAN
         assertEquals(ComfortWriteResult("confirmed", 4), ComfortWriteProtocol.parse("BYD_COMFORT_V1 confirmed 4", fan))
