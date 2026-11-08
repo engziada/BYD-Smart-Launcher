@@ -37,6 +37,14 @@ jobs:
       - run: flutter test
       - name: Generate missing standard Android wrapper files
         run: flutter create --platforms=android --project-name byd_smart_launcher --org com.ziada .
+      - name: Pin the Gradle binary distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          wrapper=android/gradle/wrapper/gradle-wrapper.properties
+          grep -Eq '^distributionUrl=.*gradle-9\.3\.1-(all|bin)\.zip$' "$wrapper"
+          sed -i -e '/^distributionUrl=/s/-all\.zip$/-bin.zip/' -e '/^distributionSha256Sum=/d' "$wrapper"
+          printf '\n%s\n' 'distributionSha256Sum=b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06' >> "$wrapper"
       - name: Run native Android unit tests
         run: cd android && ./gradlew testDebugUnitTest --no-daemon
       - name: Compile Android debug APK (not production)
