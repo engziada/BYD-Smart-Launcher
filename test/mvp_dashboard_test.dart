@@ -8,6 +8,7 @@ void main() {
   const channel = MethodChannel('com.ziada.byd_smart_launcher/vehicle');
   const events =
       MethodChannel('com.ziada.byd_smart_launcher/native_candidate_stream');
+  const startReadings = 'Connect & start live readings';
 
   void setupSize(WidgetTester tester) {
     tester.view.physicalSize = const Size(1600, 900);
@@ -57,15 +58,16 @@ void main() {
     await tester.pumpWidget(const LauncherApp());
     await tester.pump();
     expect(find.text('Vehicle overview'), findsOneWidget);
-    expect(find.text('Start native read-only stream'), findsOneWidget);
+    expect(find.text(startReadings), findsOneWidget);
     expect(calls, isNot(contains('nativeCandidateStreamStart')));
     expect(calls, isNot(contains('dashboardSample')));
 
-    await tester.tap(find.text('Start native read-only stream'));
+    await tester.tap(find.text(startReadings));
     await tester.pumpAndSettle();
     expect(calls, contains('adbConnect'));
     expect(calls, contains('event:listen'));
     expect(calls, contains('nativeCandidateStreamStart'));
+    expect(calls.where((c) => c == 'comfortMappings').length, 1);
     expect(find.text('Stop updates'), findsOneWidget);
 
     await tester.pump(const Duration(seconds: 20));
@@ -75,7 +77,7 @@ void main() {
     await tester.tap(find.text('Stop updates'));
     await tester.pumpAndSettle();
     expect(calls, contains('nativeCandidateStreamStop'));
-    expect(find.text('Start native read-only stream'), findsOneWidget);
+    expect(find.text(startReadings), findsOneWidget);
     expect(find.textContaining('Native stream stopped'), findsOneWidget);
   });
 
@@ -97,7 +99,7 @@ void main() {
 
     await tester.pumpWidget(const LauncherApp());
     await tester.pump();
-    await tester.tap(find.text('Start native read-only stream'));
+    await tester.tap(find.text(startReadings));
     await tester.pumpAndSettle();
     expect(calls.where((m) => m == 'nativeCandidateStreamStart').length, 1);
 
@@ -109,7 +111,7 @@ void main() {
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
-    expect(find.text('Start native read-only stream'), findsOneWidget);
+    expect(find.text(startReadings), findsOneWidget);
     expect(find.textContaining('background'), findsOneWidget);
     expect(calls.where((m) => m == 'nativeCandidateStreamStart').length, 1);
   });
@@ -130,9 +132,9 @@ void main() {
 
     await tester.pumpWidget(const LauncherApp());
     await tester.pump();
-    await tester.tap(find.text('Start native read-only stream'));
+    await tester.tap(find.text(startReadings));
     await tester.pumpAndSettle();
-    expect(find.text('Start native read-only stream'), findsOneWidget);
+    expect(find.text(startReadings), findsOneWidget);
     expect(find.textContaining('firmware_fids_or_scale_unvalidated'), findsOneWidget);
     // With the visual hero card, the metric tiles can be below the fold.
     // Assert the visible scene reports missing telemetry, not a guessed SOC.
