@@ -30,14 +30,14 @@ internal data class VerifiedComfortProfile(
         controls[mapping]?.takeIf { it.matches(mapping) }
 }
 
-/** Exact build matches only. Fan levels 1–2 passed the parked test. A/C power is the next pilot. */
+/** Exact build matches only. Fan levels 1–2 have passed on the car. */
 internal object VerifiedComfortProfiles {
     private val profiles = mapOf(
         "e510a4f274e082bc1854aa0e2927fb561229535034a7a96d78d179e1afad0d33" to VerifiedComfortProfile(
             gear = VehicleAddress(1011, 555745336),
             parkCode = 1,
             speed = VehicleAddress(1013, -1807745016),
-            celsiusUnit = null,
+            celsiusUnit = VehicleAddress(1000, 1077936167),
             controls = mapOf(
                 ComfortMapping.AC_POWER to VerifiedComfortAddress(
                     write = VehicleAddress(1000, 501219364),
@@ -46,7 +46,27 @@ internal object VerifiedComfortProfiles {
                 ComfortMapping.AC_FAN to VerifiedComfortAddress(
                     write = VehicleAddress(1000, 501219340),
                     readback = VehicleAddress(1000, 1077936156),
-                    pilotLevels = 1..2,
+                ),
+                ComfortMapping.AC_TEMPERATURE to VerifiedComfortAddress(
+                    write = VehicleAddress(1000, 501219368),
+                    readback = VehicleAddress(1000, 1077936168),
+                ),
+                // DiLink reports percent open. This launcher also requests percent open.
+                ComfortMapping.FRONT_LEFT to VerifiedComfortAddress(
+                    write = VehicleAddress(1001, 1276219408),
+                    readback = VehicleAddress(1001, 947912728),
+                ),
+                ComfortMapping.FRONT_RIGHT to VerifiedComfortAddress(
+                    write = VehicleAddress(1001, 1276219424),
+                    readback = VehicleAddress(1001, 1267728400),
+                ),
+                ComfortMapping.REAR_LEFT to VerifiedComfortAddress(
+                    write = VehicleAddress(1001, 1276219416),
+                    readback = VehicleAddress(1001, 947912736),
+                ),
+                ComfortMapping.REAR_RIGHT to VerifiedComfortAddress(
+                    write = VehicleAddress(1001, 1276219432),
+                    readback = VehicleAddress(1001, 947912752),
                 ),
             ),
         ),
@@ -123,12 +143,13 @@ internal object ComfortWritePolicy {
         if (result == null) return ComfortWriteResult("write_outcome_unknown")
         if (result < 0) return ComfortWriteResult("write_rejected")
         var last: Int? = null
-        repeat(if (mapping.isWindow) 8 else 4) {
+        // Keep polling within the local ADB transport's five-second read deadline.
+        repeat(if (mapping.isWindow) 20 else 4) {
             waitForReadback()
             val raw = io.readInt(address.readback)?.takeIf { it in mapping.range }
             if (raw != null) {
                 last = address.convert(raw)
-                val tolerance = if (mapping.isWindow) 3 else 0
+                val tolerance = if (mapping.isWindow && target in 1..99) 3 else 0
                 if (kotlin.math.abs(raw - target) <= tolerance && raw != before) {
                     return ComfortWriteResult("confirmed", last)
                 }

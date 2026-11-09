@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 
@@ -44,7 +45,8 @@ internal class DiagnosticReportWriter(private val context: Context) {
             "avmSurfaceApi", "cabinCelsius", "outsideCelsius", "turnSignalRaw", "energyCounterRaw",
             "frontLeftKpa", "frontRightKpa", "rearLeftKpa", "rearRightKpa"
         )
-        private val COMFORT_KEYS = setOf("ok", "status", "vehicleWriteAuthorized") +
+        private val COMFORT_WRITE_KEYS = setOf("ok", "status", "id", "requestedValue", "readback", "atMs")
+        private val COMFORT_KEYS = setOf("ok", "status", "vehicleWriteAuthorized", "ac_temperature_celsiusReady") +
             ComfortMapping.entries.flatMap {
                 val name = it.name.lowercase(java.util.Locale.ROOT)
                 listOf(
@@ -102,7 +104,7 @@ internal class DiagnosticReportWriter(private val context: Context) {
         motion: Map<String, Any?> = emptyMap(),
         ownerSensors: Map<String, Any?> = emptyMap(),
         comfortMappings: Map<String, Any?> = emptyMap(),
-        comfortWrite: Map<String, Any?> = emptyMap(),
+        comfortWrites: List<Map<String, Any?>> = emptyList(),
     ): Map<String, Any?> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             return mapOf("ok" to false, "error" to "android_10_required")
@@ -110,7 +112,7 @@ internal class DiagnosticReportWriter(private val context: Context) {
         val document = JSONObject()
             .put("schema", 6)
             .put("exportedAtUtc", Instant.now().toString())
-            .put("verification", if (transport["writeEnabled"] == true || comfortWrite.isNotEmpty()) {
+            .put("verification", if (transport["writeEnabled"] == true || comfortWrites.isNotEmpty()) {
                 "PARKED_COMFORT_WRITE_PILOT"
             } else "READ_ONLY_UNVERIFIED_NO_VEHICLE_WRITES")
             .put("transport", safeFields(transport, TRANSPORT_KEYS))
@@ -122,7 +124,8 @@ internal class DiagnosticReportWriter(private val context: Context) {
             .put("motionCandidate", safeFields(motion, MOTION_KEYS))
             .put("ownerSensorsCandidate", safeFields(ownerSensors, OWNER_SENSOR_KEYS))
             .put("comfortMappingsCandidate", safeFields(comfortMappings, COMFORT_KEYS))
-            .put("lastComfortWrite", safeFields(comfortWrite, setOf("ok", "status", "id", "requestedValue", "readback", "atMs")))
+            .put("lastComfortWrite", safeFields(comfortWrites.lastOrNull().orEmpty(), COMFORT_WRITE_KEYS))
+            .put("comfortWriteHistory", JSONArray(comfortWrites.takeLast(24).map { safeFields(it, COMFORT_WRITE_KEYS) }))
 
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, "byd-diagnostics-${System.currentTimeMillis()}.json")

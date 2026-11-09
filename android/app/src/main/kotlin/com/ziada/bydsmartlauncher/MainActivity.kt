@@ -47,7 +47,7 @@ class MainActivity : FlutterActivity() {
     @Volatile private var lastMotionSample: Map<String, Any?> = emptyMap()
     @Volatile private var lastOwnerSensors: Map<String, Any?> = emptyMap()
     @Volatile private var lastComfortMappings: Map<String, Any?> = emptyMap()
-    @Volatile private var lastComfortWrite: Map<String, Any?> = emptyMap()
+    @Volatile private var comfortWriteHistory: List<Map<String, Any?>> = emptyList()
     @Volatile private var comfortGeneration = 0L
     private var resumed = false
     private var comfortDialog: AlertDialog? = null
@@ -142,7 +142,7 @@ class MainActivity : FlutterActivity() {
                                     adb.diagnostics(), lastFirmwareProbe, lastTelemetrySample,
                                     lastFidDiscovery, lastChargingSample,
                                     candidateStream.currentStatus(), lastMotionSample, lastOwnerSensors,
-                                    lastComfortMappings, lastComfortWrite
+                                    lastComfortMappings, comfortWriteHistory
                                 )
                             } catch (_: Exception) {
                                 mapOf("ok" to false, "error" to "export_failed")
@@ -347,7 +347,8 @@ class MainActivity : FlutterActivity() {
                 respond(when (it.status) {
                     "confirmed", "already_at_target" -> "$label: ${spokenState(it.readback)}."
                     "firmware_not_verified" -> localized("This control needs on-car verification.", "التحكم ده محتاج تحقق على العربية.")
-                    "outside_pilot_range" -> localized("This test allows fan levels 1 and 2 only.", "الاختبار ده للمستوى واحد واتنين بس.")
+                    "celsius_required" -> localized("Set the factory climate display to Celsius first.", "خلّي شاشة التكييف على المئوي الأول.")
+                    "outside_pilot_range" -> localized("The value is outside the allowed range.", "القيمة برا النطاق المسموح.")
                     "cancelled" -> localized("Command cancelled.", "تم إلغاء الأمر.")
                     "write_outcome_unknown", "sent_unconfirmed" -> localized("Check the result on the car.", "راجع النتيجة على شاشة العربية.")
                     else -> localized("The control request was blocked or refused.", "أمر التحكم ما اتنفذش.")
@@ -450,8 +451,12 @@ class MainActivity : FlutterActivity() {
         }
         val dialog = AlertDialog.Builder(this)
             .setTitle(if (arabic) "تأكيد أمر التحكم" else "Confirm vehicle control")
-            .setMessage(if (arabic) "$label: $target. اتأكد إن العربية في وضع P وإن الحركة آمنة."
-                else "$label: $target. Confirm the car is in Park and the change is safe.")
+            .setMessage(when {
+                mapping.isWindow && arabic -> "$label: $target. اتأكد إن العربية في وضع P وإن الإيدين والأجسام بعيدة عن الشباك."
+                mapping.isWindow -> "$label: $target. Confirm Park and keep hands and objects clear of the window."
+                arabic -> "$label: $target. اتأكد إن العربية في وضع P وإن التغيير آمن."
+                else -> "$label: $target. Confirm the car is in Park and the change is safe."
+            })
             .setNegativeButton(if (arabic) "إلغاء" else "Cancel", null)
             .setPositiveButton(if (arabic) "تأكيد" else "Confirm") { _, _ ->
                 approved = true
@@ -462,9 +467,10 @@ class MainActivity : FlutterActivity() {
                     val outcome = runCatching {
                         adb.writeComfort(mapping, value, confirmedAt) { generation == comfortGeneration }
                     }.getOrElse { ComfortWriteResult("write_outcome_unknown") }
-                    lastComfortWrite = outcome.asMap() + mapOf(
+                    val receipt = outcome.asMap() + mapOf(
                         "id" to mapping.id, "requestedValue" to value, "atMs" to System.currentTimeMillis()
                     )
+                    comfortWriteHistory = (comfortWriteHistory + listOf(receipt)).takeLast(24)
                     mainHandler.post {
                         comfortWriteInFlight = false
                         reply(outcome)

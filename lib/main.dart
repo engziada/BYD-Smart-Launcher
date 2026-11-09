@@ -378,22 +378,31 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
       _dashboardNotice = 'Connecting ADB (approve on DiLink if prompted)…';
     });
 
+    var refreshControls = false;
     try {
       final connection = await _gateway.connectAdb();
       if (!mounted || _demo || session != _dashboardSession) {
         return;
       }
       if (connection['adb'] != 'connected') {
-        setState(() => _dashboardNotice =
-            'ADB unavailable: ${connection['adbFailure'] ?? connection['error'] ?? connection['adb'] ?? 'unknown'}.');
+        setState(() {
+          _dashboardNotice =
+              'ADB unavailable: ${connection['adbFailure'] ?? connection['error'] ?? connection['adb'] ?? 'unknown'}.';
+          _diagnostics = _dashboardNotice;
+        });
         return;
       }
+      final snapshot = await _gateway.getSnapshot();
+      if (!mounted || _demo || session != _dashboardSession) return;
+      setState(() => _snapshot = snapshot);
       if (connection['sessionReused'] != true) {
         setState(() {
           _motionCandidate = {};
           _chargingCandidate = {};
+          _comfortMappings = {};
         });
       }
+      refreshControls = true;
 
       _nativeStreamSubscription = _gateway.candidateStream.listen(
         (event) => _handleNativeCandidate(session, event),
@@ -441,6 +450,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     } finally {
       if (mounted && session == _dashboardSession) {
         setState(() => _dashboardStarting = false);
+        if (refreshControls) unawaited(_adbAction('comfortMappings'));
       }
     }
   }
@@ -991,7 +1001,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                     : Icons.play_circle_outline),
                 label: Text(_dashboardStarting ? 'Connecting…'
                     : _dashboardEnabled ? 'Stop updates'
-                    : 'Start native read-only stream'),
+                    : 'Connect & start live readings'),
               ),
               OutlinedButton.icon(
                 onPressed: _rangeBusy || _dashboardStarting || _dashboardEnabled
@@ -1370,8 +1380,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ),
           const Text('Only use ADB setup while the car is safely parked. '
               'Enable the head-unit Wireless ADB setting first. '
-              'This prototype will request ADB authorization, but cannot yet access '
-              'BYD vehicle controls or camera feeds.'),
+              'Approve the ADB prompt on the factory screen. Open Vehicle Controls '
+              'to review the controls available on your firmware.'),
           const SizedBox(height: 8),
           Text(_diagnostics),
           if (_ownerSensors.isNotEmpty)
@@ -1390,7 +1400,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               'Speed: ${_motionCandidate['speedRawFloatCandidate'] ?? '—'} '
               '(unit unknown) • Gear: '
               '${_motionCandidate['gearRawIntCandidate'] ?? '—'} '
-              '(enum unknown) • Controls disabled.',
+              '(enum unknown) • Raw diagnostic only.',
               Icons.speed_outlined,
             ),
           if (_chargingCandidate.isNotEmpty)
@@ -1411,9 +1421,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             runSpacing: 8,
             children: [
               FilledButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('connect'),
+                onPressed: (_adbBusy || _demo || _dashboardStarting || _dashboardEnabled)
+                    ? null : _startDashboard,
                 icon: const Icon(Icons.usb),
-                label: const Text('Connect ADB'),
+                label: const Text('Connect ADB & start live readings'),
               ),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : () => _adbAction('probe'),

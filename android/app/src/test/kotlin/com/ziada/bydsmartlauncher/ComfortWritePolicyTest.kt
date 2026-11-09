@@ -105,6 +105,25 @@ class ComfortWritePolicyTest {
         assertEquals(listOf(io.address.write to 0, io.address.write to 1), io.writes)
     }
 
+    @Test fun windowsUsePercentOpenAndWaitForExactEndStops() {
+        for (mapping in ComfortMapping.entries.filter { it.isWindow }) {
+            val address = controls.getValue(mapping).copy(invertedWindowPercentage = false)
+            val percentOpen = profile.copy(controls = mapOf(mapping to address))
+            val io = FakeIo(mapping).apply {
+                state = 0
+                updateState = false
+            }
+            var polls = 0
+            val outcome = ComfortWritePolicy.execute(percentOpen, mapping, 100, 100L, { io.now }, {
+                io.now += 200
+                io.state = if (++polls == 10) 100 else 99
+            }, io)
+            assertEquals(ComfortWriteResult("confirmed", 100), outcome)
+            assertEquals(listOf(address.write to 100), io.writes)
+            assertEquals(10, polls)
+        }
+    }
+
     @Test fun validatesHelperFramesAndBilingualCommands() {
         val fan = ComfortMapping.AC_FAN
         assertEquals(ComfortWriteResult("confirmed", 4), ComfortWriteProtocol.parse("BYD_COMFORT_V1 confirmed 4", fan))

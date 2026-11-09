@@ -540,6 +540,13 @@ internal class SafeAdbTransport(context: Context) {
         val catalog = FidReadOnlyDiscovery.parse(active.exec(command)).catalog
         val profile = VerifiedComfortProfiles.forFingerprint(Build.FINGERPRINT)
         val readings = mutableMapOf<String, Any?>()
+        val celsiusReady = if (selected == null || selected == ComfortMapping.AC_TEMPERATURE) {
+            profile?.celsiusUnit?.takeIf {
+                it.device == catalog.deviceOf("AC") && it.fid == catalog.fidOf("Ac.AC_TEMPERATURE_UNIT")
+            }?.let {
+                CandidateTelemetry.int(active.exec("service call autoservice 5 i32 ${it.device} i32 ${it.fid}"))?.let { unit -> unit == 1 }
+            }
+        } else null
         for (mapping in ComfortMapping.entries) {
             if (selected != null && mapping != selected) continue
             val device = catalog.deviceOf(mapping.deviceGroup)
@@ -559,7 +566,9 @@ internal class SafeAdbTransport(context: Context) {
                 val displayValue = if (valid != null && reviewed != null) reviewed.convert(valid) else valid
                 readings["${prefix}_state"] = displayValue
                 val range = reviewed?.writeRange(mapping)
-                readings["${prefix}_writable"] = range != null && displayValue != null && displayValue in range
+                val unitReady = mapping != ComfortMapping.AC_TEMPERATURE || celsiusReady == true
+                readings["${prefix}_writable"] = range != null && displayValue != null && displayValue in range && unitReady
+                if (mapping == ComfortMapping.AC_TEMPERATURE) readings["${prefix}_celsiusReady"] = celsiusReady
                 if (range != null) {
                     readings["${prefix}_writeMin"] = range.first
                     readings["${prefix}_writeMax"] = range.last

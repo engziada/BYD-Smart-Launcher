@@ -68,7 +68,7 @@ class _ComfortControlsState extends State<ComfortControls> {
           'write_outcome_unknown' || 'sent_unconfirmed' => 'Check the factory display before issuing another command.',
           'write_rejected' => 'The vehicle service rejected the command.',
           'celsius_required' => 'The vehicle must report Celsius for this command.',
-          'outside_pilot_range' => 'Set the factory fan to level 1 or 2 before using this test.',
+          'outside_pilot_range' => 'The value is outside the allowed range.',
           _ => 'Control unavailable (${result['status'] ?? 'unknown'}).',
         };
       });
@@ -107,7 +107,9 @@ class _ComfortControlsState extends State<ComfortControls> {
             DropdownMenuItem(value: entry.key, child: Text(entry.value.$1))).toList(),
       ),
       Text('${writable ? 'Vehicle readback' : 'Raw state candidate'}: ${_displayState(readback)}'),
-      if (!writable && writeMin != null && writeMax != null)
+      if (!writable && _selected == 'ac_temperature' && widget.readings['ac_temperature_celsiusReady'] == false)
+        const Text('Set the factory climate display to Celsius, then read it again.')
+      else if (!writable && writeMin != null && writeMax != null)
         Text('Set the factory control to a level from $writeMin to $writeMax, then read it again.')
       else if (!writable)
         const Text('Write access needs a reviewed firmware profile and a valid readback.'),
