@@ -501,8 +501,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   Future<void> _loadInstalledApps() async {
     try {
       final apps = await _vehicleMethods.invokeListMethod<Object?>('installedApps');
-      if (mounted) setState(() => _installedApps =
-          (apps ?? []).whereType<Map>().map((app) => app.cast<Object?, Object?>()).toList());
+      if (mounted) {
+        setState(() => _installedApps =
+            (apps ?? []).whereType<Map>().map((app) => app.cast<Object?, Object?>()).toList());
+      }
     } on PlatformException {
       if (mounted) setState(() => _installedApps = []);
     } on MissingPluginException {
@@ -519,9 +521,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     } on MissingPluginException {
       // Native launch actions are available on Android.
     }
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('This shortcut is unavailable on the head unit.')),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This shortcut is unavailable on the head unit.')),
+      );
+    }
   }
 
   String _betaValue(String name, String unit, {int decimals = 0}) {
