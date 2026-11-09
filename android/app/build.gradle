@@ -3,6 +3,13 @@ plugins {
     id 'org.jetbrains.kotlin.android'
     id 'dev.flutter.flutter-gradle-plugin'
 }
+def voiceRuntime = file('voice-runtime')
+def voiceLibrary = new File(voiceRuntime, 'sherpa-onnx.aar')
+def voiceAssets = new File(voiceRuntime, 'assets')
+def voiceModels = ['tiny-encoder.int8.onnx', 'tiny-decoder.int8.onnx', 'tiny-tokens.txt', 'silero_vad.onnx']
+if (!voiceLibrary.isFile() || voiceModels.any { !new File(voiceAssets, "offline-voice/$it").isFile() }) {
+    throw new GradleException('Run bash scripts/prepare-offline-voice.sh from the repository root before building Android.')
+}
 android {
     namespace 'com.ziada.bydsmartlauncher'
     compileSdk flutter.compileSdkVersion
@@ -12,6 +19,7 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = '17' }
+    sourceSets.main.assets.srcDir(voiceAssets)
     defaultConfig {
         applicationId 'com.ziada.bydsmartlauncher'
         minSdk 29
@@ -32,6 +40,7 @@ android {
     }
 }
 dependencies {
+    implementation files(voiceLibrary)
     // BYDMate v4.0.1 STLS pairing certificate generation.
     implementation 'org.bouncycastle:bcpkix-jdk18on:1.85'
     testImplementation 'junit:junit:4.13.2'

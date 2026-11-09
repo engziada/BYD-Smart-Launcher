@@ -3,17 +3,19 @@ import 'package:flutter/material.dart';
 
 /// Original vector illustration. No Kinex/BYDMate models, assets or internals.
 ///
-/// The moving green energy pulses are a DESIGN PREVIEW until an independently
-/// verified, fresh charging-state signal exists on this exact BYD firmware.
+/// Animates for live charging from the vehicle monitor or an explicit design preview.
 class ChargingFlowScene extends StatefulWidget {
   const ChargingFlowScene({
     super.key,
     required this.previewEnabled,
     this.socCandidate,
+    this.chargingState,
   });
 
   final bool previewEnabled;
   final double? socCandidate;
+  final String? chargingState;
+  bool get flowing => previewEnabled || chargingState == 'CHARGING';
 
   @override
   State<ChargingFlowScene> createState() => _ChargingFlowSceneState();
@@ -29,14 +31,14 @@ class _ChargingFlowSceneState extends State<ChargingFlowScene>
   @override
   void initState() {
     super.initState();
-    if (widget.previewEnabled) _flow.repeat();
+    if (widget.flowing) _flow.repeat();
   }
 
   @override
   void didUpdateWidget(covariant ChargingFlowScene oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.previewEnabled != oldWidget.previewEnabled) {
-      if (widget.previewEnabled) {
+    if (widget.flowing != oldWidget.flowing) {
+      if (widget.flowing) {
         _flow.repeat();
       } else {
         // Stopping the ticker is enough: avoid notifying AnimatedBuilder
@@ -56,24 +58,35 @@ class _ChargingFlowSceneState extends State<ChargingFlowScene>
   Widget build(BuildContext context) {
     final double? soc = widget.socCandidate;
     final socLabel = soc != null && soc.isFinite && soc >= 0 && soc <= 100
-        ? '${soc.toStringAsFixed(0)}% SOC candidate'
+        ? '${soc.toStringAsFixed(0)}% battery'
         : 'SOC unavailable';
 
+    final light = Theme.of(context).brightness == Brightness.light;
+    final ink = light ? const Color(0xFF24425D) : const Color(0xFFE5F0F8);
+    final accent = light ? const Color(0xFF147548) : const Color(0xFF78EDAE);
+    final chargeLabel = widget.previewEnabled
+        ? 'DESIGN PREVIEW  •  NOT LIVE CHARGING'
+        : switch (widget.chargingState) {
+            'CHARGING' => 'CHARGING',
+            'FINISHED' => 'CHARGE COMPLETE',
+            'IDLE' => 'UNPLUGGED',
+            _ => 'CHARGING DATA UNAVAILABLE',
+          };
     return Semantics(
-      label: widget.previewEnabled
-          ? 'Animated charging cable design preview. Not live charging data.'
-          : 'Vehicle visualization. Actual charging state not verified.',
+      label: 'Vehicle energy status: $chargeLabel',
       child: Container(
         height: 236,
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF122333), Color(0xFF0B1520), Color(0xFF192C3A)],
+            colors: light
+                ? const [Color(0xFFF1F7FC), Color(0xFFD5E6F5), Color(0xFFE6F1F9)]
+                : const [Color(0xFF122333), Color(0xFF0B1520), Color(0xFF192C3A)],
           ),
-          border: Border.all(color: const Color(0xFF355369)),
+          border: Border.all(color: light ? const Color(0xFFC1D5E8) : const Color(0xFF355369)),
         ),
         child: Stack(
           children: [
@@ -84,13 +97,13 @@ class _ChargingFlowSceneState extends State<ChargingFlowScene>
                   builder: (context, _) => CustomPaint(
                     painter: _VehicleChargePainter(
                       progress: _flow.value,
-                      flowEnabled: widget.previewEnabled,
+                      flowEnabled: widget.flowing,
                     ),
                   ),
                 ),
               ),
             ),
-            const Positioned(
+            Positioned(
               left: 20,
               top: 16,
               child: Column(
@@ -98,15 +111,15 @@ class _ChargingFlowSceneState extends State<ChargingFlowScene>
                 children: [
                   Text('SONG PLUS  /  ENERGY FLOW',
                       style: TextStyle(
-                        color: Color(0xFFB5CADD),
+                        color: ink,
                         fontSize: 11,
                         letterSpacing: 1.4,
                         fontWeight: FontWeight.w700,
                       )),
-                  SizedBox(height: 6),
-                  Text('Charging visualizer',
+                  const SizedBox(height: 6),
+                  Text('Energy status',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: ink,
                         fontSize: 20,
                         fontWeight: FontWeight.w600,
                       )),
@@ -120,13 +133,9 @@ class _ChargingFlowSceneState extends State<ChargingFlowScene>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.previewEnabled
-                        ? 'DESIGN PREVIEW  •  NOT LIVE CHARGING'
-                        : 'CHARGING STATE NOT VERIFIED',
+                    chargeLabel,
                     style: TextStyle(
-                      color: widget.previewEnabled
-                          ? const Color(0xFF78EDAE)
-                          : const Color(0xFFB5CADD),
+                      color: widget.flowing ? accent : ink,
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.7,
@@ -135,8 +144,8 @@ class _ChargingFlowSceneState extends State<ChargingFlowScene>
                   const SizedBox(height: 5),
                   Text(
                     socLabel,
-                    style: const TextStyle(
-                      color: Color(0xFFE5F0F8),
+                    style: TextStyle(
+                      color: ink,
                       fontSize: 12,
                     ),
                   ),
@@ -147,12 +156,8 @@ class _ChargingFlowSceneState extends State<ChargingFlowScene>
               right: 18,
               bottom: 18,
               child: Icon(
-                widget.previewEnabled
-                    ? Icons.bolt_rounded
-                    : Icons.power_off_outlined,
-                color: widget.previewEnabled
-                    ? const Color(0xFF79EDB0)
-                    : const Color(0xFF91A6B6),
+                widget.flowing ? Icons.bolt_rounded : Icons.power_outlined,
+                color: widget.flowing ? accent : ink,
                 size: 28,
               ),
             ),

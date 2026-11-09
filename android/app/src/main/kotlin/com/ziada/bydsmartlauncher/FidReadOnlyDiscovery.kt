@@ -10,6 +10,7 @@ import com.bydmate.app.data.nativestack.FidCatalog
 internal object FidReadOnlyDiscovery {
     private const val BEGIN = "BYD_FID_PROBE_BEGIN_V1"
     private const val END = "BYD_FID_PROBE_END_V1"
+    private const val SERVICE = "BYD_HELPER_AUTOSERVICE="
     private const val MAIN = "com.ziada.bydsmartlauncher.FidReflectionProbe"
     private const val MAX_OUTPUT = 8192
     private val allowedFields = setOf(
@@ -18,6 +19,13 @@ internal object FidReadOnlyDiscovery {
         "BYDAutoConstants.BYDAUTO_DEVICE_CHARGING",
         "BYDAutoConstants.BYDAUTO_DEVICE_SPEED",
         "BYDAutoConstants.BYDAUTO_DEVICE_GEARBOX",
+        "BYDAutoConstants.BYDAUTO_DEVICE_AC",
+        "BYDAutoConstants.BYDAUTO_DEVICE_BODYWORK",
+        "BYDAutoConstants.BYDAUTO_DEVICE_INSTRUMENT",
+        "Ac.AC_TEMP_INSIDE_FILTERING",
+        "Ac.AC_TEMPERATURE_UNIT",
+        "Instrument.INSTRUMENT_DD_OUT_TEMP",
+        "Instrument.INSTRUMENT_UNIT_TEMPERATURE",
         "Statistic.STATISTIC_ELEC_PERCENTAGE",
         "Statistic.STATISTIC_TOTAL_MILEAGE",
         "Statistic.STATISTIC_TOTAL_ELEC_CONSUMPTION",
@@ -27,21 +35,36 @@ internal object FidReadOnlyDiscovery {
         "Charging.CHARGING_TYPE",
         "Speed.SPEED_AUTO_SPEED",
         "Gearbox.GEARBOX_AUTO_MODE_TYPE"
-    )
+    ) + ComfortMapping.entries.flatMap { listOf(it.commandSymbol, it.stateSymbol) }
     private val oneLine = Regex("""^([A-Za-z][A-Za-z0-9_.]*)=(-?[0-9]{1,11})$""")
 
     /** Fixed entrypoint, fixed arguments, no user-supplied shell commands. */
-    fun command(apkPath: String): String? {
+    fun command(apkPath: String, sensors: Boolean = false): String? {
+        val entry = if (sensors) "com.ziada.bydsmartlauncher.OwnerSensorProbe" else MAIN
+        return apkCommand(apkPath, entry)
+    }
+
+    fun comfortWriteCommand(apkPath: String, mapping: ComfortMapping, value: Int, confirmedAtMs: Long): String? {
+        if (value !in mapping.range || confirmedAtMs < 0) return null
+        val entry = "com.ziada.bydsmartlauncher.ComfortShellWrite"
+        return apkCommand(apkPath, entry)?.let { "$it ${mapping.id} $value $confirmedAtMs" }
+    }
+
+    private fun apkCommand(apkPath: String, entry: String): String? {
         // Installed APK paths vary by Android release; allow the usual randomized /data/app names
         // but no whitespace, quote, semicolon, dollar sign, backtick, or shell metacharacters.
         if (!apkPath.startsWith("/data/app/") || !apkPath.endsWith("/base.apk") ||
             apkPath.length !in 24..350 ||
             apkPath.any { !(it.isLetterOrDigit() && it.code < 128) &&
                 it !in "/._+-=~:%" }) return null
-        return "CLASSPATH='$apkPath' app_process /system/bin $MAIN"
+        return "CLASSPATH='$apkPath' app_process /system/bin $entry"
     }
 
-    data class Result(val status: String, val catalog: FidCatalog = FidCatalog.EMPTY) {
+    data class Result(
+        val status: String,
+        val catalog: FidCatalog = FidCatalog.EMPTY,
+        val autoservice: String? = null
+    ) {
         val readyForCandidateProbes: Boolean get() =
             status == "catalog_candidate" &&
             catalog.deviceOf("STATISTIC") != null &&
@@ -81,6 +104,8 @@ internal object FidReadOnlyDiscovery {
             "turnSignalFidCandidate" to catalog.fidOf("Light.LIGHT_TURN_SIGNAL_LIGHT"),
             "firmwareVerified" to false,
             "helperPersistent" to false,
+            "helper" to if (autoservice != null) "one_shot_ready" else "probe_failed",
+            "autoservice" to autoservice,
             "vehicleWriteAuthorized" to false
         )
     }
@@ -94,8 +119,17 @@ internal object FidReadOnlyDiscovery {
         if (begin < 0 || end <= begin || lines.lastIndexOf(BEGIN) != begin ||
             lines.lastIndexOf(END) != end) return Result("probe_markers_invalid")
 
-        val data = lines.subList(begin + 1, end)
-        if (data.any { it == "BYD_FID_PROBE_UNAVAILABLE" }) return Result("firmware_classes_unavailable")
+        val payload = lines.subList(begin + 1, end)
+        val serviceLines = payload.filter { it.startsWith(SERVICE) }
+        if (serviceLines.size > 1) return Result("probe_output_invalid")
+        val autoservice = serviceLines.singleOrNull()?.removePrefix(SERVICE)
+        if (autoservice != null && autoservice !in setOf("responding", "unavailable", "unknown")) {
+            return Result("probe_output_invalid")
+        }
+        val data = payload.filterNot { it.startsWith(SERVICE) }
+        if ("BYD_FID_PROBE_UNAVAILABLE" in data) {
+            return Result("firmware_classes_unavailable", autoservice = autoservice)
+        }
         if (data.size > allowedFields.size) return Result("probe_output_unexpected")
 
         val seen = HashSet<String>()
@@ -113,6 +147,6 @@ internal object FidReadOnlyDiscovery {
             catalog.fidOf("Statistic.STATISTIC_ELEC_PERCENTAGE") != null &&
             catalog.fidOf("Statistic.STATISTIC_TOTAL_MILEAGE") != null
         ) "catalog_candidate" else "catalog_incomplete"
-        return Result(status, catalog)
+        return Result(status, catalog, autoservice)
     }
 }

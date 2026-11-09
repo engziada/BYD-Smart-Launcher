@@ -6,7 +6,7 @@ package com.ziada.bydsmartlauncher.automation
  */
 internal object RulePolicy {
     const val MAX_RULES = 24
-    val kinds = setOf("SOC_BELOW", "POWER_ON", "POWER_OFF")
+    val kinds = TriggerKind.entries.map { it.name }.toSet()
 
     fun validate(kind: String, threshold: Double?): String? = when {
         kind !in kinds -> "invalid_trigger"
@@ -28,6 +28,10 @@ internal data class SavedRule(
     val oncePerTrip: Boolean,
     val cooldownMs: Long,
 ) {
+    fun asRule() = AutomationRule(
+        id, TriggerKind.valueOf(kind), thresholdPercent, enabled, oncePerTrip, cooldownMs
+    )
+
     fun asMap(): Map<String, Any?> = mapOf(
         "id" to id,
         "kind" to kind,

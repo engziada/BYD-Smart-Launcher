@@ -7,18 +7,19 @@ import java.util.UUID
 
 /**
  * Device-local, versioned rule drafts with fail-closed persistence.
- * The global master switch defaults OFF. Enabling a rule only changes its saved definition:
- * NO automatic events are received and NO notification or vehicle command is dispatched.
+ * A separate opt-in keeps existing drafts inactive when upgrading to live notifications.
  */
 internal class LocalAutomationRepository(context: Context) {
-    private val prefs = context.applicationContext.getSharedPreferences("automation_rules_v1", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("automation_rules_v1", Context.MODE_PRIVATE)
+
+    fun masterEnabled(): Boolean = prefs.getBoolean("live_alerts_enabled", false)
 
     @Synchronized
     fun status(): Map<String, Any?> = mapOf(
         "ok" to true,
-        "masterEnabled" to prefs.getBoolean("master_enabled", false),
-        "executionConnected" to false,
-        "verifiedVehicleEvents" to false,
+        "masterEnabled" to masterEnabled(),
+        "executionConnected" to (com.ziada.bydsmartlauncher.VehicleBetaService.status()["active"] == true),
         "rules" to load().map { it.asMap() },
         "limit" to RulePolicy.MAX_RULES,
     )
@@ -34,12 +35,17 @@ internal class LocalAutomationRepository(context: Context) {
             kind = kind,
             thresholdPercent = threshold,
             enabled = false,
-            oncePerTrip = true,
+            oncePerTrip = !kind.startsWith("CHARGE_"),
             cooldownMs = 60_000L,
         )
         if (!save(existing + rule)) return mapOf("ok" to false, "error" to "storage_error")
         return status()
     }
+
+    @Synchronized
+    fun enabledRules(): List<AutomationRule> =
+        if (masterEnabled()) load().filter { it.enabled }.map { it.asRule() }
+        else emptyList()
 
     @Synchronized
     fun toggle(id: String, enabled: Boolean): Map<String, Any?> {
@@ -63,9 +69,10 @@ internal class LocalAutomationRepository(context: Context) {
 
     @Synchronized
     fun setMaster(enabled: Boolean): Map<String, Any?> {
-        if (!prefs.edit().putBoolean("master_enabled", enabled).commit()) {
+        if (!prefs.edit().putBoolean("live_alerts_enabled", enabled).commit()) {
             return mapOf("ok" to false, "error" to "storage_error")
         }
+        if (!enabled) com.ziada.bydsmartlauncher.VehicleBetaService.clearPowerBaseline(context = appContext)
         return status()
     }
 

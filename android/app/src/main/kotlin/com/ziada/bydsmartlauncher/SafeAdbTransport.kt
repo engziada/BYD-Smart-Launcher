@@ -1,6 +1,7 @@
 package com.ziada.bydsmartlauncher
 
 import android.content.Context
+import android.os.Build
 import android.os.SystemClock
 import com.bydmate.app.data.autoservice.AdbConnectFailure
 import com.bydmate.app.data.autoservice.AdbKeyStore
@@ -17,18 +18,44 @@ internal class SafeAdbTransport(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences("range_preferences", Context.MODE_PRIVATE)
     private val consumption = ConsumptionWindow()
 
+    companion object {
+        @Volatile private var shared: SafeAdbTransport? = null
+
+        fun shared(context: Context): SafeAdbTransport = shared ?: synchronized(this) {
+            shared ?: SafeAdbTransport(context.applicationContext).also { shared = it }
+        }
+    }
+
+    val betaProfileMatched by lazy { VerifiedComfortProfiles.forFingerprint(Build.FINGERPRINT) != null }
+
+    @Synchronized
+    fun sampleBetaSignals(signals: List<BetaSignal>): Map<BetaSignal, Double?> {
+        if (!betaProfileMatched || !hasConnectedSession()) return emptyMap()
+        val active = client ?: return emptyMap()
+        return BetaSignal.parse(signals, active.exec(BetaSignal.command(signals)))
+    }
+
     @Volatile private var client: AdbProtocolClient? = null
     /** A transport-level check only. Does NOT confirm vehicle telemetry or writes. */
     fun hasConnectedSession(): Boolean =
         state == "connected" && client?.isConnected() == true
     /** In-memory only. Never persisted as a write capability or reused across reconnects. */
     @Volatile private var nativeStreamCatalog: StreamCatalog? = null
-    private data class StreamCatalog(val device: Int, val socFid: Int, val odometerFid: Int)
+    private data class StreamCatalog(val signals: List<BetaSignal>)
 
 
     @Volatile private var state: String = "not_connected"
     @Volatile private var failureReason: String? = null
     @Volatile private var androidVersion: String? = null
+    @Volatile private var helperProbe: FidReadOnlyDiscovery.Result? = null
+
+    val helperState: String
+        get() = when {
+            state != "connected" -> "adb_required"
+            helperProbe == null -> "ready_to_probe"
+            helperProbe?.autoservice != null -> "one_shot_ready"
+            else -> "probe_failed"
+        }
 
     /** Must run on a dedicated worker: ADB may show an approval dialog for up to 60 seconds. */
     @Synchronized
@@ -36,6 +63,7 @@ internal class SafeAdbTransport(context: Context) {
         if (state == "connected" && client?.isConnected() == true) return diagnostics()
         state = "connecting"
         nativeStreamCatalog = null
+        helperProbe = null
         failureReason = null
         androidVersion = null
         return try {
@@ -147,7 +175,7 @@ internal class SafeAdbTransport(context: Context) {
             ?: return mapOf("ok" to false, "reason" to "invalid_apk_path")
         return try {
             val active = client ?: return mapOf("ok" to false, "reason" to "adb_not_connected")
-            val discovery = FidReadOnlyDiscovery.parse(active.exec(cmd))
+            val discovery = FidReadOnlyDiscovery.parse(active.exec(cmd)).also { helperProbe = it }
             if (!discovery.readyForCandidateProbes) {
                 return mapOf("ok" to false, "reason" to "firmware_catalog_unavailable")
             }
@@ -166,7 +194,12 @@ internal class SafeAdbTransport(context: Context) {
                 )) {
                 return mapOf("ok" to false, "reason" to "firmware_fids_or_scale_unvalidated")
             }
-            nativeStreamCatalog = StreamCatalog(device!!, socFid!!, odometerFid!!)
+            val signals = mutableListOf(BetaSignal.SOC, BetaSignal.ODOMETER)
+            if (betaProfileMatched && discovery.catalog.deviceOf("SPEED") == BetaSignal.SPEED.device &&
+                discovery.catalog.fidOf("Speed.SPEED_AUTO_SPEED") == BetaSignal.SPEED.fid) {
+                signals.add(BetaSignal.SPEED)
+            }
+            nativeStreamCatalog = StreamCatalog(signals)
             mapOf(
                 "ok" to true, "catalogMatched" to true,
                 "reason" to "owner_observed_fids_only",
@@ -178,10 +211,7 @@ internal class SafeAdbTransport(context: Context) {
         }
     }
 
-    /**
-     * P2 native read-only candidate tick. Exactly TWO fixed autoservice GETs;
-     * no energy counter, no control/permission/daemon/SET transactions.
-     */
+    /** One read-only ADB batch for the dashboard. */
     @Synchronized
     fun nativeCandidateTick(): Map<String, Any?> {
         val catalog = nativeStreamCatalog
@@ -192,18 +222,18 @@ internal class SafeAdbTransport(context: Context) {
         }
         return try {
             val active = client ?: return mapOf("ok" to false, "reason" to "adb_disconnected")
-            val soc = CandidateTelemetry.soc(active.exec(
-                "service call autoservice 7 i32 ${catalog.device} i32 ${catalog.socFid}"
-            ))
-            val odometer = CandidateTelemetry.int(active.exec(
-                "service call autoservice 5 i32 ${catalog.device} i32 ${catalog.odometerFid}"
-            ))?.takeIf { it in 0..10_000_000 }?.div(10.0)
+            val readings = BetaSignal.parse(catalog.signals, active.exec(BetaSignal.command(catalog.signals)))
+            val soc = readings[BetaSignal.SOC]?.takeIf { it in 0.0..100.0 }
+            val odometer = readings[BetaSignal.ODOMETER]?.takeIf { it in 0.0..10_000_000.0 }?.div(10.0)
+            val speed = readings[BetaSignal.SPEED]?.takeIf { it in 0.0..250.0 }
 
+            if (!hasConnectedSession()) return mapOf("ok" to false, "reason" to "adb_disconnected")
             mapOf(
                 "ok" to (soc != null && odometer != null),
                 "catalogMatched" to true,
                 "socCandidatePercent" to soc,
                 "odometerCandidateKm" to odometer,
+                "speedKmh" to speed,
                 "capturedAtEpochMs" to System.currentTimeMillis(),
                 "reason" to if (soc != null && odometer != null)
                     "requires_ongoing_oem_validation" else "invalid_candidate_value",
@@ -377,7 +407,7 @@ internal class SafeAdbTransport(context: Context) {
                 "firmwareVerified" to false, "vehicleWriteAuthorized" to false)
         return try {
             val active = client ?: return mapOf("ok" to false, "status" to "adb_not_connected")
-            val discovered = FidReadOnlyDiscovery.parse(active.exec(command))
+            val discovered = FidReadOnlyDiscovery.parse(active.exec(command)).also { helperProbe = it }
             val info = discovered.diagnostics().toMutableMap()
             if (!discovered.readyForCandidateProbes) return info
 
@@ -474,6 +504,125 @@ internal class SafeAdbTransport(context: Context) {
         )
     }
 
+    @Synchronized
+    fun sampleOwnerSensors(includeVehicleCatalog: Boolean): Map<String, Any?> {
+        val active = client?.takeIf { hasConnectedSession() }
+            ?: return mapOf("ok" to false, "status" to "adb_not_connected")
+        val sensorCommand = FidReadOnlyDiscovery.command(appContext.packageCodePath, sensors = true)
+            ?: return mapOf("ok" to false, "status" to "invalid_apk_path")
+        val sensors = OwnerSensorReport.parse(active.exec(sensorCommand))
+        val data = mutableMapOf<String, Any?>(
+            "status" to if (sensors != null) "sensor_helper_answered" else "sensor_helper_unavailable",
+            "firmwareVerified" to false,
+            "cameraActivated" to false,
+        )
+        if (sensors != null) data.putAll(sensors)
+        if (includeVehicleCatalog) {
+            val discovery = FidReadOnlyDiscovery.command(appContext.packageCodePath)
+                ?.let { FidReadOnlyDiscovery.parse(active.exec(it)) }
+            val catalog = discovery?.catalog
+            fun read(group: String, name: String): Int? {
+                val device = catalog?.deviceOf(group) ?: return null
+                val fid = catalog.fidOf(name) ?: return null
+                return CandidateTelemetry.int(active.exec("service call autoservice 5 i32 $device i32 $fid"))
+            }
+            val cabinUnit = read("AC", "Ac.AC_TEMPERATURE_UNIT")
+            if (cabinUnit == 1) {
+                data["cabinCelsius"] = read("AC", "Ac.AC_TEMP_INSIDE_FILTERING")?.takeIf { it in 1..90 }
+            }
+            val outsideUnit = read("INSTRUMENT", "Instrument.INSTRUMENT_UNIT_TEMPERATURE")
+            if (outsideUnit == 1) {
+                data["outsideCelsius"] = read("INSTRUMENT", "Instrument.INSTRUMENT_DD_OUT_TEMP")?.takeIf { it in -60..100 }
+            }
+            data["turnSignalRaw"] = read("LIGHT", "Light.LIGHT_TURN_SIGNAL_LIGHT")?.takeIf { it in 0..255 }
+            if (discovery?.readyForCandidateProbes == true) {
+                val device = catalog?.deviceOf("STATISTIC")
+                val fid = catalog?.fidOf("Statistic.STATISTIC_TOTAL_ELEC_CONSUMPTION")
+                if (device != null && fid != null) {
+                    data["energyCounterRaw"] = CandidateTelemetry.float(
+                        active.exec("service call autoservice 7 i32 $device i32 $fid")
+                    )
+                }
+            }
+        }
+        data["ok"] = sensors != null || data.values.any { it is Int || it is Double }
+        data["capturedAtEpochMs"] = System.currentTimeMillis()
+        return data
+    }
+
+    @Synchronized
+    fun probeComfortMappings(selected: ComfortMapping? = null): Map<String, Any?> {
+        val active = client?.takeIf { hasConnectedSession() }
+            ?: return mapOf("ok" to false, "status" to "adb_not_connected")
+        val command = FidReadOnlyDiscovery.command(appContext.packageCodePath)
+            ?: return mapOf("ok" to false, "status" to "invalid_apk_path")
+        val catalog = FidReadOnlyDiscovery.parse(active.exec(command)).catalog
+        val profile = VerifiedComfortProfiles.forFingerprint(Build.FINGERPRINT)
+        val readings = mutableMapOf<String, Any?>()
+        val celsiusReady = if (selected == null || selected == ComfortMapping.AC_TEMPERATURE) {
+            profile?.celsiusUnit?.takeIf {
+                it.device == catalog.deviceOf("AC") && it.fid == catalog.fidOf("Ac.AC_TEMPERATURE_UNIT")
+            }?.let {
+                CandidateTelemetry.int(active.exec("service call autoservice 5 i32 ${it.device} i32 ${it.fid}"))?.let { unit -> unit == 1 }
+            }
+        } else null
+        for (mapping in ComfortMapping.entries) {
+            if (selected != null && mapping != selected) continue
+            val device = catalog.deviceOf(mapping.deviceGroup)
+            val stateFid = catalog.fidOf(mapping.stateSymbol)
+            val commandFid = catalog.fidOf(mapping.commandSymbol)
+            val prefix = mapping.id
+            if (device != null && stateFid != null && commandFid != null && stateFid != commandFid) {
+                val value = CandidateTelemetry.int(active.exec("service call autoservice 5 i32 $device i32 $stateFid"))
+                readings["${prefix}_device"] = device
+                readings["${prefix}_commandFid"] = commandFid
+                readings["${prefix}_readbackFid"] = stateFid
+                val reviewed = profile?.address(mapping)?.takeIf {
+                    it.write == VehicleAddress(device, commandFid) &&
+                        it.readback == VehicleAddress(device, stateFid)
+                }
+                val valid = value?.takeIf { it in mapping.range }
+                val displayValue = if (valid != null && reviewed != null) reviewed.convert(valid) else valid
+                readings["${prefix}_state"] = displayValue
+                val range = reviewed?.writeRange(mapping)
+                val unitReady = mapping != ComfortMapping.AC_TEMPERATURE || celsiusReady == true
+                readings["${prefix}_writable"] = range != null && displayValue != null && displayValue in range && unitReady
+                if (mapping == ComfortMapping.AC_TEMPERATURE) readings["${prefix}_celsiusReady"] = celsiusReady
+                if (range != null) {
+                    readings["${prefix}_writeMin"] = range.first
+                    readings["${prefix}_writeMax"] = range.last
+                }
+            }
+        }
+        readings["ok"] = readings.isNotEmpty()
+        readings["vehicleWriteAuthorized"] = readings.any { (key, value) -> key.endsWith("_writable") && value == true }
+        readings["status"] = if (readings["ok"] == true) "candidate_mappings_found" else "mappings_unavailable"
+        return readings
+    }
+
+    fun comfortWriteAvailable(mapping: ComfortMapping): Boolean =
+        comfortWriteRange(mapping) != null
+
+    fun comfortWriteRange(mapping: ComfortMapping): IntRange? =
+        if (transportState == "connected") {
+            VerifiedComfortProfiles.forFingerprint(Build.FINGERPRINT)?.address(mapping)?.writeRange(mapping)
+        } else null
+
+    @Synchronized
+    fun writeComfort(
+        mapping: ComfortMapping, value: Int, confirmedAtMs: Long, stillForeground: () -> Boolean,
+    ): ComfortWriteResult {
+        val active = client?.takeIf { hasConnectedSession() } ?: return ComfortWriteResult("adb_not_connected")
+        val range = comfortWriteRange(mapping) ?: return ComfortWriteResult("firmware_not_verified")
+        if (value !in range) return ComfortWriteResult("outside_pilot_range")
+        val command = FidReadOnlyDiscovery.comfortWriteCommand(appContext.packageCodePath, mapping, value, confirmedAtMs)
+            ?: return ComfortWriteResult("invalid_value")
+        if (!stillForeground() || SystemClock.elapsedRealtime() - confirmedAtMs !in 0..3_000) {
+            return ComfortWriteResult("confirmation_expired")
+        }
+        return ComfortWriteProtocol.parse(active.exec(command), mapping)
+    }
+
     /** Operator-invoked, FIXED read-only property and service liveness checks. */
     @Synchronized
     fun probeFirmware(): Map<String, Any?> {
@@ -484,7 +633,7 @@ internal class SafeAdbTransport(context: Context) {
         val model = FirmwareDiagnostics.property(active.exec("getprop ro.product.model"))
         val manufacturer = FirmwareDiagnostics.property(active.exec("getprop ro.product.manufacturer"))
         val sdk = FirmwareDiagnostics.sdkInt(active.exec("getprop ro.build.version.sdk"))
-        val fingerprint = FirmwareDiagnostics.fingerprintDigest(
+        val fingerprint = FirmwareDiagnostics.fullFingerprintDigest(
             active.exec("getprop ro.build.fingerprint")
         )
         val serviceAvailable = FirmwareDiagnostics.servicePresent(
@@ -495,7 +644,8 @@ internal class SafeAdbTransport(context: Context) {
             "model" to model,
             "manufacturer" to manufacturer,
             "androidSdk" to sdk,
-            "fingerprintHashPrefix" to fingerprint,
+            "fingerprintHashPrefix" to fingerprint?.take(20),
+            "fingerprintSha256" to fingerprint,
             "autoservicePresent" to serviceAvailable,
             "compatibleAndVerified" to false,
             "vehicleWriteAuthorized" to false,
@@ -521,6 +671,7 @@ internal class SafeAdbTransport(context: Context) {
     @Synchronized
     fun disconnect(): Map<String, Any?> {
         nativeStreamCatalog = null
+        helperProbe = null
         client?.disconnect()
         client = null
         state = "not_connected"
@@ -537,9 +688,10 @@ internal class SafeAdbTransport(context: Context) {
         "androidRelease" to androidVersion,
         "transportHost" to "127.0.0.1",
         "transportPort" to 5555,
-        "helper" to "not_installed",
+        "helper" to helperState,
+        "autoservice" to helperProbe?.autoservice,
         "vehicleTelemetry" to "native_candidate_stream_preview_not_verified",
-        "writeEnabled" to false,
+        "writeEnabled" to ComfortMapping.entries.any(::comfortWriteAvailable),
     )
 
     val transportState: String get() = state

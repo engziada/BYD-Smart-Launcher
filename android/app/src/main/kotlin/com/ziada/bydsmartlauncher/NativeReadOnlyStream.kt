@@ -19,7 +19,7 @@ internal class NativeReadOnlyStream(
     private val main: Handler,
     private val onAcceptedSample: (Map<String, Any?>) -> Unit
 ) {
-    companion object { const val SAMPLE_INTERVAL_MS = 5_000L }
+    companion object { const val SAMPLE_INTERVAL_MS = 750L }
 
     private val policy = CandidateStreamPolicy()
     private var sink: EventChannel.EventSink? = null

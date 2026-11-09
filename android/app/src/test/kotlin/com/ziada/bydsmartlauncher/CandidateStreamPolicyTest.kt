@@ -30,6 +30,13 @@ class CandidateStreamPolicyTest {
         assertEquals(2L, next["sequence"])
     }
 
+    @Test fun speedIsOptionalAndInvalidReadingsAreNeverDisplayed() {
+        val policy = CandidateStreamPolicy()
+        assertEquals(43.5, policy.inspect(good() + ("speedKmh" to 43.5), 1_200L)["speedKmh"])
+        assertNull(policy.inspect(good(time = 1_500L) + ("speedKmh" to Double.NaN), 1_500L)["speedKmh"])
+        assertNull(policy.inspect(good(time = 1_600L) + ("speedKmh" to -1), 1_600L)["speedKmh"])
+    }
+
     @Test fun rejectsOldDuplicateFutureInvalidAndUnresolvedSamples() {
         val cases = listOf(
             good(time = 1L),                          // age > 15 sec

@@ -5,13 +5,16 @@ import 'package:flutter/services.dart';
 
 import 'core/adb_observation_scope.dart';
 import 'core/adb_stream_recovery.dart';
-import 'core/charging_visual_mode.dart';
 import 'core/planning_range.dart';
 import 'core/vehicle_gateway.dart';
 import 'core/vehicle_snapshot.dart';
 import 'widgets/charging_flow_scene.dart';
+import 'widgets/measured_trip_range.dart';
+import 'widgets/comfort_controls.dart';
 
-final ValueNotifier<bool> _lightMode = ValueNotifier<bool>(false);
+final ValueNotifier<bool> _lightMode = ValueNotifier<bool>(true);
+const MethodChannel _voice = MethodChannel('com.ziada.byd_smart_launcher/voice');
+const MethodChannel _vehicleMethods = MethodChannel('com.ziada.byd_smart_launcher/vehicle');
 
 Color get _background => _lightMode.value ? const Color(0xFFF4F7FA) : const Color(0xFF151C24);
 Color get _surface => _lightMode.value ? Colors.white : const Color(0xFF1C2530);
@@ -54,11 +57,12 @@ class LauncherApp extends StatelessWidget {
   }
 }
 
-enum LauncherPage { status, blindSpot, range, automations, telegram, controls, settings }
+enum LauncherPage { status, apps, blindSpot, range, automations, telegram, controls, settings }
 
 extension LauncherPageInfo on LauncherPage {
   String get label => switch (this) {
     LauncherPage.status => 'Status',
+    LauncherPage.apps => 'Apps',
     LauncherPage.blindSpot => 'Blind Spot',
     LauncherPage.range => 'Range Planner',
     LauncherPage.automations => 'Automations',
@@ -69,6 +73,7 @@ extension LauncherPageInfo on LauncherPage {
 
   IconData get icon => switch (this) {
     LauncherPage.status => Icons.speed_outlined,
+    LauncherPage.apps => Icons.apps_outlined,
     LauncherPage.blindSpot => Icons.videocam_outlined,
     LauncherPage.range => Icons.route_outlined,
     LauncherPage.automations => Icons.auto_mode_outlined,
@@ -94,11 +99,14 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   String _diagnostics = 'Vehicle diagnostics not requested';
   Map<Object?, Object?> _chargingCandidate = {};
   Map<Object?, Object?> _motionCandidate = {};
+  Map<Object?, Object?> _ownerSensors = {};
+  Map<Object?, Object?> _comfortMappings = {};
   bool _adbBusy = false;
   final _tgToken = TextEditingController();
   final _tgChat = TextEditingController();
   bool _tgBusy = false;
   bool _tgConfigured = false;
+  bool _tgAutoRetry = false;
   int _tgPending = 0;
   String _tgMessage = 'No bot credentials are uploaded to GitHub.';
   final _batteryCapacity = TextEditingController();
@@ -113,19 +121,26 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   bool _streamSessionArmed = false;
   bool _streamRecoveryUsed = false;
   bool _operatorDisconnected = false;
+  bool _authorizationNeedsRetry = false;
   bool _appInForeground = true;
   int _dashboardSession = 0;
+  Timer? _dashboardExpiry;
+  DateTime? _lastIntegrationRefresh;
   bool _dashboardEnabled = false;
   bool _dashboardStarting = false;
   DateTime? _dashboardSampledAt;
-  String _dashboardNotice = 'Tap Start to connect ADB and show read-only candidate values.';
+  String _dashboardNotice = 'Connecting to the vehicle…';
   String _rangeMessage = 'Press Sample while safely parked. These values are UNVERIFIED.';
+  Map<Object?, Object?> _betaStatus = {};
+  Map<Object?, Object?> _cameraStatus = {};
+  List<Map<Object?, Object?>> _installedApps = [];
+  bool _cameraBusy = false;
   bool _rulesBusy = false;
   bool _rulesMasterEnabled = false;
   List<Map<Object?, Object?>> _storedRules = [];
   String _newRuleKind = 'SOC_BELOW';
   final _socRuleThreshold = TextEditingController(text: '25');
-  String _rulesMessage = 'Drafts are local only. No vehicle events are connected.';
+  String _rulesMessage = 'Enable the rules you want and configure Telegram delivery.';
 
   @override
   void initState() {
@@ -137,6 +152,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     _loadCapacityStatus();
     _loadPlanningConsumption();
     _loadAutomationStatus();
+    unawaited(_readBetaStatus());
+    unawaited(_loadTheme());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_startDashboard());
+    });
   }
 
   Future<void> _connect() async {
@@ -162,6 +182,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
 
   Future<void> _toggleDemo(bool enabled) async {
     _stopDashboard(reason: 'Dashboard updates stopped on mode change.');
+    await _voiceAction('demo', enabled);
+    if (!mounted) return;
     setState(() {
       _demo = enabled;
       _gateway.dispose();
@@ -171,11 +193,61 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
       _snapshot = VehicleSnapshot.unavailable();
       _chargingCandidate = {};
       _motionCandidate = {};
+      _ownerSensors = {};
+      _comfortMappings = {};
       _rangeCandidate = {};
       _dashboardSampledAt = null;
     });
     await _connect();
     await _loadAutomationStatus();
+    if (!enabled && mounted && !_operatorDisconnected) unawaited(_startDashboard());
+  }
+
+  Future<void> _voiceAction(String method, [Object? argument]) async {
+    try {
+      await _voice.invokeMethod<void>(method, argument);
+    } on MissingPluginException {
+      if (mounted && method != 'demo') _showVoiceUnavailable();
+    } on PlatformException catch (error) {
+      if (!mounted || method == 'demo') return;
+      if (error.code == 'settings_unavailable') {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('This head unit does not expose Android Accessibility Settings.'),
+        ));
+      } else {
+        _showVoiceUnavailable();
+      }
+    }
+  }
+
+  void _showVoiceUnavailable() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Voice assistant is unavailable on this device.')),
+    );
+  }
+
+  Future<void> _typeVoiceCommand() async {
+    String command = '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ask the assistant'),
+        content: TextField(
+          autofocus: true,
+          maxLength: 120,
+          decoration: const InputDecoration(hintText: 'Battery level / نسبة البطارية'),
+          onChanged: (value) => command = value,
+          onSubmitted: (value) => Navigator.pop(context, value),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, command), child: const Text('Ask')),
+        ],
+      ),
+    );
+    if (mounted && !_demo && result != null && result.trim().isNotEmpty) {
+      await _voiceAction('text', result.trim());
+    }
   }
 
 
@@ -187,6 +259,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     bool notifyNative = true,
   }) {
     _dashboardSession++;
+    _dashboardExpiry?.cancel();
     _streamSessionArmed = false;
     _nativeStreamSubscription?.cancel();
     _nativeStreamSubscription = null;
@@ -198,6 +271,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         _dashboardEnabled = false;
         _dashboardStarting = false;
         _rangeCandidate = {};
+        _betaStatus = {};
         _dashboardSampledAt = null;
         _dashboardNotice = reason;
       });
@@ -206,11 +280,14 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Keep the connection attempt alive while Android's ADB approval dialog has focus.
+    if (state == AppLifecycleState.inactive) return;
     _appInForeground = state == AppLifecycleState.resumed;
-    if (!_appInForeground &&
-        (_dashboardEnabled || _dashboardStarting)) {
-      _stopDashboard(
-          reason: 'Stream stopped in background. Tap Start to reconnect.');
+    if (_appInForeground) {
+      unawaited(_readBetaStatus());
+      if (!_operatorDisconnected) unawaited(_startDashboard());
+    } else if (_dashboardEnabled) {
+      _stopDashboard(reason: 'Readings paused while the launcher is in the background.');
     }
   }
 
@@ -222,7 +299,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     final status = event['streamState'];
     if (status == 'initializing' || status == 'idle') {
       if (status == 'initializing') _streamSessionArmed = true;
-      setState(() => _dashboardNotice = 'Resolving firmware FIDs (GET only)…');
+      setState(() => _dashboardNotice = 'Connecting to vehicle data…');
       return;
     }
     if (status == 'candidate') {
@@ -246,17 +323,34 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
       setState(() {
         _rangeCandidate = event;
         _dashboardSampledAt = readAt;
-        _dashboardNotice = 'Native read-only stream • 5s updates • '
-            'FIDs matched to owner diagnostic only. NOT verified live telemetry.';
+        _dashboardNotice = 'Live readings';
       });
+      _dashboardExpiry?.cancel();
+      _dashboardExpiry = Timer(const Duration(seconds: 3), () {
+        if (mounted && session == _dashboardSession) {
+          setState(() {
+            _rangeCandidate = {};
+            _betaStatus = {};
+            _dashboardSampledAt = null;
+            _dashboardNotice = 'Waiting for fresh readings…';
+          });
+        }
+      });
+      final now = DateTime.now();
+      if (_lastIntegrationRefresh == null ||
+          now.difference(_lastIntegrationRefresh!) >= const Duration(seconds: 2)) {
+        _lastIntegrationRefresh = now;
+        unawaited(_readBetaStatus());
+      }
       return;
     }
     if (status == 'stale') {
+      _dashboardExpiry?.cancel();
       setState(() {
         _rangeCandidate = {};
         _dashboardSampledAt = null;
-        _dashboardNotice = 'Stale candidate stream: '
-            '${event['reason'] ?? 'read_failed'}. No values shown.';
+        _betaStatus = {};
+        _dashboardNotice = 'Waiting for fresh readings…';
       });
       return;
     }
@@ -274,12 +368,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         operatorDisconnected: _operatorDisconnected,
         recoveryAlreadyTried: _streamRecoveryUsed,
       )) {
-        _retryUnexpectedAdbLoss(reason!);
+        _retryUnexpectedAdbLoss();
         return;
       }
       _stopDashboard(
-          reason: 'Native stream stopped: ${reason ?? 'unknown'}. '
-              'Start again while parked; no vehicle commands.',
+          reason: 'Vehicle readings unavailable. Connection details are in Settings → Advanced.',
           notifyNative: false);
     }
   }
@@ -287,10 +380,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   /// One bounded recovery from an UNEXPECTED loss only. The old values are
   /// cleared immediately and the native FID/identity gate must run again.
   /// A second loss leaves the stream stopped for explicit user action.
-  void _retryUnexpectedAdbLoss(String reason) {
+  void _retryUnexpectedAdbLoss() {
     _streamRecoveryUsed = true;
     _stopDashboard(
-      reason: 'ADB lost ($reason). Reconnecting once after 2 seconds…',
+      reason: 'Reconnecting to the vehicle…',
       notifyNative: false,
     );
     final stoppedSession = _dashboardSession;
@@ -303,39 +396,53 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     });
   }
 
-  Future<void> _startDashboard({bool recovery = false}) async {
-    if (_demo || _dashboardEnabled || _dashboardStarting || _adbBusy) {
+  Future<void> _startDashboard({bool recovery = false, bool manual = false}) async {
+    if (!manual && (_authorizationNeedsRetry || _operatorDisconnected)) return;
+    if (!_appInForeground || _demo || _dashboardEnabled || _dashboardStarting) {
       return;
     }
     if (!recovery) {
       _streamRecoveryUsed = false;
       _operatorDisconnected = false;
     }
+    _authorizationNeedsRetry = false;
     _streamSessionArmed = false;
     final session = ++_dashboardSession;
     setState(() {
       _dashboardStarting = true;
       _rangeCandidate = {};
       _dashboardSampledAt = null;
-      _dashboardNotice = 'Connecting ADB (approve on DiLink if prompted)…';
+      _lastIntegrationRefresh = null;
+      _dashboardNotice = 'Connecting to the vehicle…';
     });
 
+    var refreshControls = false;
     try {
       final connection = await _gateway.connectAdb();
-      if (!mounted || _demo || session != _dashboardSession) {
+      if (!mounted || !_appInForeground || _demo || session != _dashboardSession) {
         return;
       }
       if (connection['adb'] != 'connected') {
-        setState(() => _dashboardNotice =
-            'ADB unavailable: ${connection['adbFailure'] ?? connection['error'] ?? connection['adb'] ?? 'unknown'}.');
+        _authorizationNeedsRetry = connection['adbFailure'] == 'authorization_rejected_or_timeout';
+        setState(() {
+          _dashboardNotice = connection['adbFailure'] == 'authorization_rejected_or_timeout'
+              ? 'Vehicle connection needs approval on the head unit.'
+              : 'Vehicle connection unavailable.';
+          _diagnostics = 'ADB: ${connection['adbFailure'] ?? connection['error'] ?? connection['adb'] ?? 'unknown'}';
+        });
         return;
       }
+      final snapshot = await _gateway.getSnapshot();
+      if (!mounted || !_appInForeground || _demo || session != _dashboardSession) return;
+      setState(() => _snapshot = snapshot);
       if (connection['sessionReused'] != true) {
         setState(() {
           _motionCandidate = {};
           _chargingCandidate = {};
+          _comfortMappings = {};
         });
       }
+      refreshControls = true;
 
       _nativeStreamSubscription = _gateway.candidateStream.listen(
         (event) => _handleNativeCandidate(session, event),
@@ -355,7 +462,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
       }
       setState(() {
         _dashboardEnabled = true;
-        _dashboardNotice = 'Waiting for native firmware lookup…';
+        _dashboardNotice = 'Connecting to vehicle data…';
       });
 
       // EventChannel "listen" messages are asynchronous. A bounded retry
@@ -372,9 +479,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         return;
       }
       if (start['ok'] != true) {
-        _stopDashboard(
-            reason: 'Native stream unavailable: '
-                '${start['reason'] ?? start['error'] ?? 'unknown'}');
+        setState(() => _diagnostics = 'Vehicle stream: ${start['reason'] ?? start['error'] ?? 'unknown'}');
+        _stopDashboard(reason: 'Vehicle readings unavailable. Connection details are in Settings → Advanced.');
       }
     } catch (_) {
       if (mounted && session == _dashboardSession) {
@@ -383,8 +489,78 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     } finally {
       if (mounted && session == _dashboardSession) {
         setState(() => _dashboardStarting = false);
+        if (refreshControls) unawaited(_adbAction('comfortMappings'));
       }
     }
+  }
+
+  Future<void> _readBetaStatus() async {
+    if (_demo) return;
+    try {
+      final status = await _vehicleMethods.invokeMapMethod<Object?, Object?>('betaStatus') ?? {};
+      if (!mounted || _demo) return;
+      setState(() {
+        _betaStatus = status;
+        final camera = status['camera'];
+        _cameraStatus = camera is Map ? camera.cast<Object?, Object?>() : {};
+      });
+    } on PlatformException {
+      if (mounted) setState(() => _betaStatus = {});
+    } on MissingPluginException {
+      if (mounted) setState(() => _betaStatus = {});
+    }
+  }
+
+  Future<void> _setSideCamera(bool enabled) async {
+    if (_cameraBusy || _demo) return;
+    setState(() => _cameraBusy = true);
+    try {
+      final camera = await _vehicleMethods.invokeMapMethod<Object?, Object?>(
+        'sideCameraSet', {'enabled': enabled},
+      );
+      if (mounted && camera != null) setState(() => _cameraStatus = camera);
+    } on PlatformException {
+      if (mounted) setState(() => _cameraStatus = {'state': 'camera_unavailable'});
+    } on MissingPluginException {
+      if (mounted) setState(() => _cameraStatus = {'state': 'camera_unavailable'});
+    } finally {
+      if (mounted) setState(() => _cameraBusy = false);
+    }
+  }
+
+  Future<void> _loadInstalledApps() async {
+    try {
+      final apps = await _vehicleMethods.invokeListMethod<Object?>('installedApps');
+      if (mounted) {
+        setState(() => _installedApps =
+            (apps ?? []).whereType<Map>().map((app) => app.cast<Object?, Object?>()).toList());
+      }
+    } on PlatformException {
+      if (mounted) setState(() => _installedApps = []);
+    } on MissingPluginException {
+      if (mounted) setState(() => _installedApps = []);
+    }
+  }
+
+  Future<void> _openSystemTarget(String method, [String? package]) async {
+    try {
+      final opened = await _vehicleMethods.invokeMethod<bool>(method, package);
+      if (opened == true) return;
+    } on PlatformException {
+      // Older DiLink builds may not expose the system chooser.
+    } on MissingPluginException {
+      // Native launch actions are available on Android.
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This shortcut is unavailable on the head unit.')),
+      );
+    }
+  }
+
+  String _betaValue(String name, String unit, {int decimals = 0}) {
+    final value = _demo ? null : _betaStatus[name];
+    return value is num && value.isFinite ? '${value.toStringAsFixed(decimals)} $unit' : '—';
   }
 
   Future<void> _readDiagnostics() async {
@@ -420,6 +596,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     if (_adbBusy || _demo || _dashboardStarting) return;
     if (action == 'disconnect') {
       _operatorDisconnected = true;
+      setState(() => _betaStatus = {});
       _stopDashboard(reason: 'ADB disconnected by operator; dashboard stopped.');
     }
     if (action == 'connect' && _dashboardEnabled) {
@@ -441,6 +618,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         'fids' => await _gateway.probeFidCatalog(),
         'charging' => await _gateway.sampleChargingCandidates(),
         'motion' => await _gateway.probeMotionCandidates(),
+        'ownerSensors' || 'comfortMappings' =>
+          await _vehicleMethods.invokeMapMethod<Object?, Object?>(action) ?? {},
         _ => await _gateway.probeAdb(),
       };
       final snapshot = await _gateway.getSnapshot();
@@ -451,9 +630,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             _chargingCandidate = response;
           } else if (action == 'motion') {
             _motionCandidate = response;
+          } else if (action == 'ownerSensors') {
+            _ownerSensors = response;
+          } else if (action == 'comfortMappings') {
+            _comfortMappings = response;
           } else if (shouldClearAdbObservations(action, response)) {
             _chargingCandidate = {};
             _motionCandidate = {};
+            _ownerSensors = {};
+            _comfortMappings = {};
             _rangeCandidate = {};
             _dashboardSampledAt = null;
           }
@@ -507,7 +692,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     }
     setState(() {
       _rulesBusy = true;
-      _rulesMessage = 'Saving local rule settings…';
+      _rulesMessage = 'Saving notification rules…';
     });
     try {
       final response = switch (action) {
@@ -521,7 +706,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         if (response['ok'] == true) {
           _consumeRules(response);
           setState(() => _rulesMessage =
-              'Saved locally. No automatic actions or vehicle writes are connected.');
+              'Rule settings saved. Enable Telegram delivery to send matching alerts.');
         } else {
           setState(() => _rulesMessage =
               'Rule update refused: ${response['error'] ?? 'unknown'}');
@@ -538,6 +723,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     'SOC_BELOW' => 'SOC at or below ${rule['thresholdPercent']}%',
     'POWER_ON' => 'Car power ON',
     'POWER_OFF' => 'Car power OFF',
+    'CHARGE_STARTED' => 'Charging started',
+    'CHARGE_FINISHED' => 'Charging finished',
     _ => 'Unknown trigger',
   };
 
@@ -753,12 +940,13 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     if (mounted) {
       setState(() {
         _tgConfigured = status['configured'] == true;
+        _tgAutoRetry = status['automaticRetryEnabled'] == true;
         _tgPending = (status['pendingMessages'] as num?)?.toInt() ?? 0;
       });
     }
   }
 
-  Future<void> _telegramAction(String action) async {
+  Future<void> _telegramAction(String action, {bool? enabled}) async {
     if (_tgBusy || _demo) return;
     setState(() {
       _tgBusy = true;
@@ -771,12 +959,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         'retry' => await _gateway.telegramRetry(),
         'dropQueue' => await _gateway.telegramClearPending(),
         'status' => await _gateway.telegramSendCurrentStatus(),
+        'automaticRetry' => await _vehicleMethods.invokeMapMethod<Object?, Object?>(
+            'telegramSetAutomaticRetry', {'enabled': enabled}) ?? {},
         _ => await _gateway.telegramSendTest(),
       };
       final status = await _gateway.telegramStatus();
       if (mounted) {
         setState(() {
           _tgConfigured = status['configured'] == true;
+          _tgAutoRetry = status['automaticRetryEnabled'] == true;
           _tgPending = (status['pendingMessages'] as num?)?.toInt() ?? 0;
           _tgMessage = result['ok'] == true
               ? (action == 'save'
@@ -787,7 +978,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                           ? 'Pending tests removed.'
                           : action == 'status'
                               ? 'Current car-status message accepted by Telegram.'
-                              : result['sent'] == false
+                              : action == 'automaticRetry'
+                                  ? (_tgAutoRetry ? 'Background retries enabled.' : 'Background retries disabled.')
+                                  : result['sent'] == false
                                   ? 'No pending messages to retry.'
                                   : 'Test message confirmed by Telegram.')
               : 'Telegram: ${result['error'] ?? 'operation_failed'}${_tgPending > 0 ? ' (pending: $_tgPending)' : ''}';
@@ -806,6 +999,28 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     }
   }
 
+  Future<void> _loadTheme() async {
+    try {
+      final value = await _vehicleMethods.invokeMethod<Object?>('getLightTheme');
+      if (mounted && value is bool) _lightMode.value = value;
+    } on MissingPluginException {
+      // Use the default appearance outside Android.
+    } on PlatformException {
+      // Appearance remains usable if preferences are unavailable.
+    }
+  }
+
+  Future<void> _setTheme(bool light) async {
+    _lightMode.value = light;
+    try {
+      await _vehicleMethods.invokeMethod<void>('setLightTheme', light);
+    } on MissingPluginException {
+      // The selection still applies to this session.
+    } on PlatformException {
+      // The selection still applies to this session.
+    }
+  }
+
   void _refreshThemeColors() {
     if (mounted) setState(() {});
   }
@@ -814,6 +1029,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _dashboardSession++;
+    _dashboardExpiry?.cancel();
     _nativeStreamSubscription?.cancel();
     unawaited(_gateway.stopNativeCandidateStream());
     _lightMode.removeListener(_refreshThemeColors);
@@ -894,126 +1110,68 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   Widget _content() {
     switch (_page) {
       case LauncherPage.status:
-        final socCandidate = _rangeCandidate['socCandidatePercent'];
-        final socValue = socCandidate is num &&
-                socCandidate.toDouble().isFinite &&
-                socCandidate >= 0 && socCandidate <= 100
-            ? socCandidate.toDouble() / 100.0
-            : null;
-        final flowMode = resolveChargingVisualMode(
-          previewRequested: _chargeDesignPreview,
-          chargingDiagnostic: _chargingCandidate,
-        );
-        return _section('Vehicle overview',
-            'BYD Song Plus • read-only car data • clear source labels • no vehicle commands', [
-          if (!_demo)
-            Wrap(spacing: 12, runSpacing: 8, children: [
-              FilledButton.icon(
-                onPressed: _dashboardStarting || _adbBusy
-                    ? null : _dashboardEnabled
-                        ? () => _stopDashboard()
-                        : _startDashboard,
-                icon: Icon(_dashboardEnabled ? Icons.stop_circle_outlined
-                    : Icons.play_circle_outline),
-                label: Text(_dashboardStarting ? 'Connecting…'
-                    : _dashboardEnabled ? 'Stop updates'
-                    : 'Start native read-only stream'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _rangeBusy || _dashboardStarting || _dashboardEnabled
-                    ? null : _sampleDashboardOnce,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Read once'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _dashboardStarting)
-                    ? null : () => _adbAction('charging'),
-                icon: const Icon(Icons.ev_station_outlined),
-                label: const Text('Charging diagnostic once'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _dashboardStarting || _dashboardEnabled)
-                    ? null : () => _adbAction('motion'),
-                icon: const Icon(Icons.speed_outlined),
-                label: const Text('Probe raw speed & gear once'),
-              ),
-            ]),
-          if (!_demo)
-            Text(_dashboardNotice),
-          ChargingFlowScene(
-            previewEnabled: flowMode == ChargingVisualMode.designPreview,
-            socCandidate: _demo
-                ? _snapshot.socPercent?.toDouble()
-                : socCandidate is num ? socCandidate.toDouble() : null,
-          ),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Preview animated charging cable'),
-            subtitle: const Text(
-                'Design preview only — NOT actual charger/vehicle status. '
-                'Never triggered by unverified charging FIDs.'),
-            value: _chargeDesignPreview,
-            onChanged: (value) =>
-                setState(() => _chargeDesignPreview = value),
-          ),
-          _info(_demo ? 'DEMO — synthetic readings' : 'Vehicle data — read-only connection',
-              _demo
-                  ? 'No car connection, updates, or commands in demo mode.'
-                  : 'SOC/odometer use the firmware-discovered FIDs; stream stops on stale data. '
-                    'No vehicle writes, camera access, or automatic Telegram dispatch.',
-              Icons.dashboard_outlined),
+        final soc = _demo ? _snapshot.socPercent : _rangeCandidate['socCandidatePercent'];
+        return _section('Vehicle overview', _demo ? 'Demo readings' : _dashboardNotice, [
           Row(children: [
-            _metric(_demo ? 'Battery • DEMO' : 'Battery • car read',
-                _demo
-                    ? _value(_snapshot.socPercent, '%')
+            _metric('Speed',
+                _demo ? _value(_snapshot.speedKmh, ' km/h')
+                    : _candidateValue('speedKmh', 'km/h', precision: 0),
+                Icons.speed_outlined),
+            _metric('Battery',
+                _demo ? _value(_snapshot.socPercent, '%')
                     : _candidateValue('socCandidatePercent', '%', precision: 0),
                 Icons.battery_full_outlined),
-            _metric(_demo ? 'Speed • DEMO' : 'Odometer • car read',
-                _demo
-                    ? _value(_snapshot.speedKmh, ' km/h')
-                    : _candidateValue('odometerCandidateKm', 'km'),
-                Icons.speed_outlined),
-            _metric('Real range', _demo
-                ? _value(_snapshot.rangeEstimateKm, ' km')
-                : '—', Icons.route_outlined),
-          ]),
-          if (!_demo && socValue != null)
-            LinearProgressIndicator(value: socValue),
-          if (!_demo && _dashboardSampledAt != null)
-            Text('Last ${_rangeCandidate['streamState'] == 'candidate' ? 'native' : 'manual'} sample: '
-                 '${TimeOfDay.fromDateTime(_dashboardSampledAt!).format(context)} '
-                 '• ${_dashboardEnabled ? 'native stream ON' : 'updates STOPPED'}'),
-          if (_rangeBusy || _dashboardStarting)
-            const LinearProgressIndicator(),
-          if (!_demo && _motionCandidate.isNotEmpty)
-            _info('Speed & gear — UNVERIFIED raw values',
-                'Speed raw: ${_motionCandidate['speedRawFloatCandidate'] ?? '—'} '
-                '(units unknown) • Gear raw: '
-                '${_motionCandidate['gearRawIntCandidate'] ?? '—'} '
-                '(enum unknown). NEVER used for controls.',
-                Icons.speed_outlined),
-          if (!_demo && _chargingCandidate.isNotEmpty)
-            _info('Charging state — hypothesis',
-                'Connector ${_chargingCandidate['gunKindCandidate'] ?? 'unknown'} • '
-                'BMS ${_chargingCandidate['bmsPhaseCandidate'] ?? 'unknown'} • '
-                'No charge-complete alerts',
+            _metric('Odometer', _candidateValue('odometerCandidateKm', 'km'),
+                Icons.route_outlined),
+            _metric('Electric range',
+                _demo ? _value(_snapshot.rangeEstimateKm, ' km') : _betaValue('rangeKm', 'km'),
                 Icons.ev_station_outlined),
-          _info('Blind-spot camera: requires OEM integration',
-              'Factory reverse/360 remains available. No camera surface claimed.',
-              Icons.videocam_off_outlined),
+          ]),
+          ChargingFlowScene(
+            previewEnabled: false,
+            chargingState: _demo ? null : _betaStatus['chargeState'] as String?,
+            socCandidate: soc is num ? soc.toDouble() : null,
+          ),
+        ]);
+      case LauncherPage.apps:
+        return _section('Apps', 'Open apps installed on this head unit', [
+          if (_installedApps.isEmpty) const Text('No launchable apps found.'),
+          Wrap(spacing: 12, runSpacing: 8, children: [
+            for (final app in _installedApps)
+              OutlinedButton.icon(
+                onPressed: () => _openSystemTarget('openInstalledApp', app['package'] as String?),
+                icon: const Icon(Icons.launch_outlined),
+                label: Text(app['label'] as String? ?? ''),
+              ),
+          ]),
         ]);
       case LauncherPage.blindSpot:
-        return _section('Blind spot',
-            'Native BYDMate-style camera integration is pending', [
-          _info('Camera disabled by default',
-              'Indicator selects left/right; factory reverse or 360 takes priority',
-              Icons.videocam_off_outlined),
-          const Text('Planned: firmware-aware FIDs, 150 ms signal response, '
-              'persistent window positioning, and no interference with OEM cameras.'),
+        return _section('Blind spot cameras',
+            'Side preview follows the turn signal while the launcher is in focus', [
+          SwitchListTile(
+            value: _cameraStatus['enabled'] == true,
+            title: const Text('Enable side camera preview'),
+            subtitle: const Text('Starts at 30 km/h in Drive. Reverse and loss of focus close the preview.'),
+            onChanged: _cameraBusy || _demo || _cameraStatus['supportedFirmware'] != true
+                ? null : _setSideCamera,
+          ),
+          _info('Preview status',
+              _cameraStatus['supportedFirmware'] == true
+                  ? (_cameraStatus['state'] as String? ?? 'idle').replaceAll('_', ' ')
+                  : 'The side-camera profile is unavailable for this firmware.',
+              Icons.videocam_outlined),
         ]);
       case LauncherPage.range:
-        return _section('Range Planner — usable now',
-            'Calculate from your battery and consumption assumptions. Not BMS-measured Real Range.', [
+        return _section('EV range',
+            'Automatic estimate from vehicle energy and recent electric driving', [
+          _info('Estimated electric range: ${_betaValue('rangeKm', 'km')}',
+              _betaStatus['active'] != true
+                  ? 'Connect ADB to start measuring.'
+                  : 'Consumption: ${_betaValue('consumption', 'kWh/100 km', decimals: 1)}. '
+                    'Available energy: ${_betaValue('remainingKwh', 'kWh', decimals: 1)} '
+                    '(${_betaStatus['bmsEnergy'] == true ? 'vehicle reading' : 'saved capacity × SOC'}). '
+                    'An estimate appears after sufficient unplugged, electric-only distance.',
+              Icons.route_outlined),
           _info('Trip planning calculator',
               'Use the fresh SOC read from your car when available, otherwise enter '
               'SOC manually. Your battery capacity and average consumption are '
@@ -1069,40 +1227,21 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           if (_rangeBusy) const LinearProgressIndicator(),
           Text(_planRangeOrigin),
           const Divider(),
-          _info('Actual BMS Real Range — integration pending',
-              'Driving-only energy units and charge exclusion are not yet '
-              'verified on this Song Plus. Do not confuse the planner with '
-              'a vehicle-measured range instrument.',
-              Icons.info_outline),
-          Row(children: [
-            _metric('Car SOC • candidate',
-                _candidateValue('socCandidatePercent', '%'),
-                Icons.battery_full_outlined),
-            _metric('Odometer • candidate',
-                _candidateValue('odometerCandidateKm', 'km'),
-                Icons.speed_outlined),
-            _metric('Measured BMS range', '—', Icons.route_outlined),
-          ]),
-          OutlinedButton.icon(
-            onPressed: (_rangeBusy || _demo || _dashboardEnabled)
-                ? null : _sampleTelemetry,
-            icon: const Icon(Icons.sensors_outlined),
-            label: const Text('Refresh raw car data (read-only)'),
-          ),
-          Text(_rangeMessage),
+          if (!_demo) const MeasuredTripRange(),
+          if (!_demo) const Divider(),
         ]);
       case LauncherPage.automations:
-        return _section('Automations — local rule drafts',
-            'Edit notification-only WHEN/THEN rules; live automation dispatcher NOT connected', [
-          _info('Execution disconnected',
-              'Rules persist locally, but no verified car events or automatic sends exist yet.',
+        return _section('Automations',
+            'Send Telegram notifications when vehicle state changes', [
+          _info(_betaStatus['active'] == true ? 'Vehicle monitor running' : 'Vehicle monitor idle',
+              'Enable Telegram delivery and the rules you want to receive.',
               Icons.shield_outlined),
           SwitchListTile(
             value: _rulesMasterEnabled,
             onChanged: _rulesBusy || _demo
                 ? null : (value) => _automationAction('master', enabled: value),
-            title: const Text('Master enable — saved preference only'),
-            subtitle: const Text('This does not start rule execution.'),
+            title: const Text('Enable automatic vehicle alerts'),
+            subtitle: const Text('Allows enabled rules to send to your saved Telegram chat.'),
           ),
           Row(children: [
             const Text('WHEN  '),
@@ -1112,6 +1251,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 DropdownMenuItem(value: 'SOC_BELOW', child: Text('SOC below threshold')),
                 DropdownMenuItem(value: 'POWER_ON', child: Text('Vehicle power ON')),
                 DropdownMenuItem(value: 'POWER_OFF', child: Text('Vehicle power OFF')),
+                DropdownMenuItem(value: 'CHARGE_STARTED', child: Text('Charging started')),
+                DropdownMenuItem(value: 'CHARGE_FINISHED', child: Text('Charging finished')),
               ],
               onChanged: _rulesBusy || _demo ? null : (value) {
                 if (value != null) setState(() => _newRuleKind = value);
@@ -1138,7 +1279,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             final enabled = rule['enabled'] == true;
             return ListTile(
               title: Text(_ruleLabel(rule)),
-              subtitle: const Text('THEN: notification-only intent · NOT dispatched'),
+              subtitle: const Text('THEN: send Telegram notification'),
               leading: const Icon(Icons.notifications_none_outlined),
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 Switch(
@@ -1158,11 +1299,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         ]);
       case LauncherPage.telegram:
         return _section('Telegram bot',
-            'Encrypted credentials • genuine manual status • no automatic alerts', [
+            'Encrypted credentials • manual status and automatic notifications', [
           _info(
             _tgConfigured ? 'Bot credentials saved' : 'Bot not configured',
-            'Owner-confirmed private car status supported from fresh read-only SOC/odometer. '
-            'No automatic vehicle alerts.',
+            'Send current status manually or enable delivery and choose rules in Automations.',
             _tgConfigured ? Icons.lock_outline : Icons.send_outlined,
           ),
           TextField(
@@ -1213,141 +1353,219 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               ),
             ],
           ),
-          Text('Pending diagnostic messages: $_tgPending'),
+          Text('Pending messages: $_tgPending'),
+          SwitchListTile(
+            title: const Text('Enable automatic delivery and retries'),
+            subtitle: const Text('Uses the saved Telegram chat when a network is available.'),
+            value: _tgAutoRetry,
+            onChanged: _tgBusy || _demo || !_tgConfigured
+                ? null : (value) => _telegramAction('automaticRetry', enabled: value),
+          ),
           Wrap(spacing: 12, runSpacing: 8, children: [
             OutlinedButton.icon(
               onPressed: _tgBusy || _demo || !_tgConfigured || _tgPending == 0
                   ? null : () => _telegramAction('retry'),
               icon: const Icon(Icons.refresh_outlined),
-              label: const Text('Retry pending test'),
+              label: const Text('Retry pending message'),
             ),
             OutlinedButton.icon(
               onPressed: _tgBusy || _demo || _tgPending == 0
                   ? null : () => _telegramAction('dropQueue'),
               icon: const Icon(Icons.delete_sweep_outlined),
-              label: const Text('Clear pending tests'),
+              label: const Text('Clear pending messages'),
             ),
           ]),
           Text(_tgMessage),
           if (_tgBusy) const LinearProgressIndicator(),
-          const Text('Manually confirmed fresh car status sends once; no queued '
-              'or automatic retry of private readings. Diagnostic TEST messages '
-              'have manual retry. ON/OFF alerts remain disabled pending verification.'),
+          const Text('Manual status asks for confirmation. Enabled alerts are queued during network loss.'),
         ]);
       case LauncherPage.controls:
-        return _section('Vehicle controls', 'Not available until this firmware grants verified, safely gated write access', [
-          _info('Commands unavailable',
-              'Car firmware must be verified. Only allowlisted comfort commands '
-              'with safe conditions and confirmation may be enabled.',
-              Icons.shield_outlined),
-          const Text('Climate, windows and comfort commands need a verified '
-              'BYD control API, proven parked-state inputs and readback. '
-              'Buttons that only simulate control are deliberately not presented '
-              'as live vehicle features.'),
+        return _section('Vehicle controls', 'Read vehicle state and confirm changes while parked', [
+          ComfortControls(
+            readings: _comfortMappings,
+            busy: _adbBusy,
+            demo: _demo,
+            refresh: () => _adbAction('comfortMappings'),
+            write: (id, value) async {
+              final result = await _vehicleMethods.invokeMapMethod<Object?, Object?>(
+                'comfortWrite', {'id': id, 'value': value},
+              ) ?? {};
+              if (mounted && result['readback'] is int) {
+                setState(() => _comfortMappings = {
+                  ..._comfortMappings, '${id}_state': result['readback'],
+                });
+              }
+              return result;
+            },
+          ),
         ]);
       case LauncherPage.settings:
-        return _section('Settings & diagnostics',
-            'ADB handshake only; helper and vehicle telemetry are not yet installed', [
+        return _section('Settings',
+            'Launcher, ADB and offline voice settings', [
+          OutlinedButton.icon(
+            onPressed: () => _openSystemTarget('chooseHome'),
+            icon: const Icon(Icons.home_outlined),
+            label: const Text('Choose default launcher'),
+          ),
           SwitchListTile(
             value: _lightMode.value,
-            onChanged: (enabled) => _lightMode.value = enabled,
+            onChanged: _setTheme,
             title: const Text('Light scene mode'),
             subtitle: const Text('Switch between light and dark appearance'),
             secondary: Icon(_lightMode.value ? Icons.light_mode : Icons.dark_mode),
           ),
-          SwitchListTile(
-            value: _demo,
-            onChanged: _toggleDemo,
-            title: const Text('Explicit demo mode'),
-            subtitle: const Text('Synthetic data; never controls the vehicle'),
-          ),
-          _info('ADB: ${_snapshot.adbState}',
-              'Helper: ${_snapshot.helperState}', Icons.usb_outlined),
-          const Text('Only use ADB setup while the car is safely parked. '
-              'Enable the head-unit Wireless ADB setting first. '
-              'This prototype will request ADB authorization, but cannot yet access '
-              'BYD vehicle controls or camera feeds.'),
-          const SizedBox(height: 8),
-          Text(_diagnostics),
-          if (_motionCandidate.isNotEmpty)
-            _info(
-              'Motion firmware diagnostic — RAW ONLY',
-              'Speed: ${_motionCandidate['speedRawFloatCandidate'] ?? '—'} '
-              '(unit unknown) • Gear: '
-              '${_motionCandidate['gearRawIntCandidate'] ?? '—'} '
-              '(enum unknown) • Controls disabled.',
-              Icons.speed_outlined,
-            ),
-          if (_chargingCandidate.isNotEmpty)
-            _info(
-              'Charging diagnostic — UNVERIFIED',
-              'Connector: ${_chargingCandidate['gunKindCandidate'] ?? 'unknown'} '
-              '(raw ${_chargingCandidate['gunStateRaw'] ?? '—'}). '
-              'BMS: ${_chargingCandidate['bmsPhaseCandidate'] ?? 'unknown'} '
-              '(raw ${_chargingCandidate['bmsStateRaw'] ?? '—'}). '
-              'Hypothesis: ${_chargingCandidate['chargeStateCandidate'] ?? 'unknown'}. '
-              'No completion alerts are authorized.',
-              Icons.battery_charging_full_outlined,
-            ),
-          if (_adbBusy) const LinearProgressIndicator(),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
+          ExpansionTile(
+            title: const Text('Advanced'),
+            leading: const Icon(Icons.build_outlined),
             children: [
-              FilledButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('connect'),
-                icon: const Icon(Icons.usb),
-                label: const Text('Connect ADB'),
+              SwitchListTile(
+                value: _demo,
+                onChanged: _toggleDemo,
+                title: const Text('Explicit demo mode'),
+                subtitle: const Text('Synthetic data; never controls the vehicle'),
               ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('probe'),
-                icon: const Icon(Icons.info_outline),
-                label: const Text('Probe Android version'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('soc'),
-                icon: const Icon(Icons.battery_full),
-                label: const Text('Probe SOC (unverified)'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('firmware'),
-                icon: const Icon(Icons.developer_board_outlined),
-                label: const Text('Probe firmware identity (read-only)'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('fids'),
-                icon: const Icon(Icons.manage_search),
-                label: const Text('Discover firmware FIDs (one-shot, read-only)'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('charging'),
-                icon: const Icon(Icons.ev_station_outlined),
-                label: const Text('Read charging state once (read-only candidate)'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo || _dashboardStarting || _dashboardEnabled)
-                    ? null : () => _adbAction('motion'),
-                icon: const Icon(Icons.speed_outlined),
-                label: const Text('Probe raw speed & gear (GET-only)'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),
-                icon: const Icon(Icons.link_off),
-                label: const Text('Disconnect ADB'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _adbBusy ? null : _readDiagnostics,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Refresh diagnostics'),
-              ),
+              _info('ADB: ${_snapshot.adbState}',
+                  'Helper: ${_snapshot.helperState}', Icons.usb_outlined),
               OutlinedButton.icon(
                 onPressed: (_adbBusy || _demo) ? null : _exportDiagnostics,
                 icon: const Icon(Icons.file_download_outlined),
                 label: const Text('Export sanitized diagnostics JSON'),
               ),
+              const Text('Only use ADB setup while the car is safely parked. '
+                  'Enable the head-unit Wireless ADB setting first. '
+                  'Approve the ADB prompt on the factory screen. Open Vehicle Controls '
+                  'to review the controls available on your firmware.'),
+              const SizedBox(height: 8),
+              Text(_diagnostics),
+              if (_ownerSensors.isNotEmpty)
+                _info(
+                  'Sensor candidates',
+                  'Tyres, kPa (FL / FR / RL / RR): '
+                  '${_ownerSensors['frontLeftKpa'] ?? '—'} / ${_ownerSensors['frontRightKpa'] ?? '—'} / '
+                  '${_ownerSensors['rearLeftKpa'] ?? '—'} / ${_ownerSensors['rearRightKpa'] ?? '—'}\n'
+                  'Cabin / outside: ${_ownerSensors['cabinCelsius'] ?? '—'} / '
+                  '${_ownerSensors['outsideCelsius'] ?? '—'} °C • Raw energy: ${_ownerSensors['energyCounterRaw'] ?? '—'}',
+                  Icons.sensors_outlined,
+                ),
+              if (_motionCandidate.isNotEmpty)
+                _info(
+                  'Motion firmware diagnostic — RAW ONLY',
+                  'Speed: ${_motionCandidate['speedRawFloatCandidate'] ?? '—'} '
+                  '(unit unknown) • Gear: '
+                  '${_motionCandidate['gearRawIntCandidate'] ?? '—'} '
+                  '(enum unknown) • Raw diagnostic only.',
+                  Icons.speed_outlined,
+                ),
+              if (_chargingCandidate.isNotEmpty)
+                _info(
+                  'Charging diagnostic — UNVERIFIED',
+                  'Connector: ${_chargingCandidate['gunKindCandidate'] ?? 'unknown'} '
+                  '(raw ${_chargingCandidate['gunStateRaw'] ?? '—'}). '
+                  'BMS: ${_chargingCandidate['bmsPhaseCandidate'] ?? 'unknown'} '
+                  '(raw ${_chargingCandidate['bmsStateRaw'] ?? '—'}). '
+                  'Hypothesis: ${_chargingCandidate['chargeStateCandidate'] ?? 'unknown'}. '
+                  'No completion alerts are authorized.',
+                  Icons.battery_charging_full_outlined,
+                ),
+              if (_adbBusy) const LinearProgressIndicator(),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    onPressed: (_adbBusy || _demo || _dashboardStarting || _dashboardEnabled)
+                        ? null : () => _startDashboard(manual: true),
+                    icon: const Icon(Icons.usb),
+                    label: const Text('Retry vehicle connection'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('probe'),
+                    icon: const Icon(Icons.info_outline),
+                    label: const Text('Probe Android version'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('soc'),
+                    icon: const Icon(Icons.battery_full),
+                    label: const Text('Probe SOC (unverified)'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('firmware'),
+                    icon: const Icon(Icons.developer_board_outlined),
+                    label: const Text('Probe firmware identity (read-only)'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('fids'),
+                    icon: const Icon(Icons.manage_search),
+                    label: const Text('Probe vehicle helper and firmware FIDs'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('charging'),
+                    icon: const Icon(Icons.ev_station_outlined),
+                    label: const Text('Read charging state once (read-only candidate)'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('ownerSensors'),
+                    icon: const Icon(Icons.sensors_outlined),
+                    label: const Text('Read tyre and temperature candidates'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo || _dashboardStarting || _dashboardEnabled)
+                        ? null : () => _adbAction('motion'),
+                    icon: const Icon(Icons.speed_outlined),
+                    label: const Text('Probe raw speed & gear (GET-only)'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),
+                    icon: const Icon(Icons.link_off),
+                    label: const Text('Disconnect ADB'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _adbBusy ? null : _readDiagnostics,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh diagnostics'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(spacing: 12, runSpacing: 8, children: [
+                OutlinedButton(
+                  onPressed: _rangeBusy || _demo || _dashboardEnabled ? null : _sampleDashboardOnce,
+                  child: const Text('Read dashboard once'),
+                ),
+                OutlinedButton(
+                  onPressed: _rangeBusy || _demo || _dashboardEnabled ? null : _sampleTelemetry,
+                  child: const Text('Read raw energy once'),
+                ),
+              ]),
+              Text(_rangeMessage),
+              SwitchListTile(
+                title: const Text('Preview animated charging cable'),
+                value: _chargeDesignPreview,
+                onChanged: (value) => setState(() => _chargeDesignPreview = value),
+              ),
+              if (_chargeDesignPreview) const ChargingFlowScene(previewEnabled: true),
             ],
           ),
+          const Text('Offline voice assistant'),
+          Wrap(spacing: 8, children: [
+            OutlinedButton(
+              onPressed: _demo ? null : () => _voiceAction('language', 'ar'),
+              child: const Text('صوت عربي'),
+            ),
+            OutlinedButton(
+              onPressed: _demo ? null : () => _voiceAction('language', 'en'),
+              child: const Text('English voice'),
+            ),
+            OutlinedButton(
+              onPressed: _demo ? null : _typeVoiceCommand,
+              child: const Text('Type an assistant command'),
+            ),
+            OutlinedButton(
+              onPressed: _demo ? null : () => _voiceAction('wheelSettings'),
+              child: const Text('Steering-wheel voice settings'),
+            ),
+          ]),
         ]);
     }
   }
@@ -1368,7 +1586,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: InkWell(
-                  onTap: () => setState(() => _page = page),
+                  onTap: () {
+                    setState(() => _page = page);
+                    if (page == LauncherPage.apps) unawaited(_loadInstalledApps());
+                    if (page == LauncherPage.controls && !_dashboardStarting &&
+                        _snapshot.adbState == 'connected') {
+                      unawaited(_adbAction('comfortMappings'));
+                    }
+                    unawaited(_readBetaStatus());
+                  },
                   borderRadius: BorderRadius.circular(15),
                   child: SizedBox(
                     height: 65,
@@ -1392,40 +1618,6 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         }).toList(),
       );
 
-  Widget _mediaRail() => Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: _surface,
-          borderRadius: BorderRadius.circular(22),
-        ),
-        child: Column(
-          children: [
-            const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(Icons.play_circle_outline),
-              SizedBox(width: 10),
-              Text('Now playing',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w500)),
-            ]),
-            Expanded(
-                child: Center(
-                    child: Icon(Icons.music_note_outlined,
-                        size: 90, color: _secondary))),
-            const Text('No media session',
-                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-            Text('Media player integration is planned',
-                style: TextStyle(color: _secondary, fontSize: 11)),
-            const SizedBox(height: 25),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-              Icon(Icons.skip_previous_outlined, color: _secondary),
-              Icon(Icons.play_arrow_outlined, color: _secondary),
-              Icon(Icons.skip_next_outlined, color: _secondary),
-            ]),
-            const SizedBox(height: 32),
-          ],
-        ),
-      );
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1441,14 +1633,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                     style:
                         TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
                 const Spacer(),
+                IconButton(
+                  onPressed: _demo ? null : () => _voiceAction('start'),
+                  tooltip: 'Talk to the offline assistant',
+                  icon: const Icon(Icons.mic),
+                ),
+                const SizedBox(width: 8),
                 Text(
-                  _demo
-                      ? 'DEMO — no car access'
-                      : _snapshot.hasLiveVehicleData
-                          ? 'Live vehicle connected'
-                          : _snapshot.adbState.toLowerCase().contains('connected') && !_snapshot.adbState.toLowerCase().contains('disconnected')
-                              ? 'ADB connected • vehicle unverified'
-                              : 'Vehicle disconnected',
+                  _demo ? 'Demo mode' : _dashboardSampledAt != null
+                      ? 'Vehicle online' : _dashboardStarting ? 'Connecting…' : 'Vehicle offline',
                   style: TextStyle(color: _secondary),
                 ),
                 const SizedBox(width: 20),
@@ -1456,19 +1649,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                     color: _secondary),
               ]),
               const SizedBox(height: 18),
-              Expanded(child: LayoutBuilder(builder: (context, size) {
-                return Row(children: [
-                  SizedBox(
-                      width: size.maxWidth * .29, child: _mediaRail()),
-                  const SizedBox(width: 23),
-                  Expanded(
-                      child: Column(children: [
-                    Expanded(child: _content()),
-                    const SizedBox(height: 10),
-                    _navigation(),
-                  ])),
-                ]);
-              })),
+              Expanded(child: _content()),
+              const SizedBox(height: 10),
+              _navigation(),
             ],
           ),
         ),

@@ -1,6 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <!-- Required for a user-initiated loopback ADB TCP connection. -->
   <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+  <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+  <uses-permission android:name="android.permission.CAMERA"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <queries>
+    <intent><action android:name="android.speech.RecognitionService"/></intent>
+    <intent><action android:name="android.intent.action.TTS_SERVICE"/></intent>
+  </queries>
   <application android:label="BYD Smart Launcher" android:usesCleartextTraffic="false"
     android:allowBackup="false">
     <activity android:name=".MainActivity" android:exported="true"
@@ -15,8 +24,29 @@
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
-      <!-- Don't replace OEM HOME launcher until acceptance tests. -->
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.HOME"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+      </intent-filter>
     </activity>
+    <service android:name=".WheelVoiceService" android:exported="true"
+      android:label="BYD steering-wheel voice shortcut"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService"/>
+      </intent-filter>
+      <meta-data android:name="android.accessibilityservice"
+        android:resource="@xml/wheel_voice_service"/>
+    </service>
+    <service android:name=".VehicleBetaService" android:exported="false"/>
+    <receiver android:name=".VehicleBetaBootReceiver" android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED"/>
+      </intent-filter>
+    </receiver>
+    <service android:name=".TelegramRetryJob" android:exported="true"
+      android:permission="android.permission.BIND_JOB_SERVICE"/>
     <meta-data android:name="flutterEmbedding" android:value="2"/>
   </application>
 </manifest>

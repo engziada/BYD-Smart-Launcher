@@ -1,5 +1,6 @@
 package com.ziada.bydsmartlauncher
 
+import android.os.IBinder
 import java.lang.reflect.Modifier
 
 /**
@@ -18,6 +19,15 @@ object FidReflectionProbe {
     @JvmStatic
     fun main(args: Array<String>) {
         println(BEGIN)
+        val service = try {
+            val manager = Class.forName("android.os.ServiceManager")
+            val binder = manager.getMethod("getService", String::class.java)
+                .invoke(null, "autoservice") as? IBinder
+            if (binder?.pingBinder() == true) "responding" else "unavailable"
+        } catch (_: Exception) {
+            "unknown"
+        }
+        println("BYD_HELPER_AUTOSERVICE=$service")
         try {
             val constants = Class.forName("android.hardware.bydauto.BYDAutoConstants")
             printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_STATISTIC")
@@ -25,6 +35,9 @@ object FidReflectionProbe {
             printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_CHARGING")
             printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_SPEED")
             printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_GEARBOX")
+            printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_AC")
+            printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_BODYWORK")
+            printInt(constants, "BYDAutoConstants", "BYDAUTO_DEVICE_INSTRUMENT")
 
             val features = Class.forName("android.hardware.bydauto.BYDAutoFeatureIds")
             val byName = features.declaredClasses.associateBy { it.simpleName }
@@ -50,6 +63,19 @@ object FidReflectionProbe {
             if (gearbox != null) printInt(gearbox, "Gearbox", "GEARBOX_AUTO_MODE_TYPE")
             val light = byName["Light"]
             if (light != null) printInt(light, "Light", "LIGHT_TURN_SIGNAL_LIGHT")
+            byName["Ac"]?.let {
+                printInt(it, "Ac", "AC_TEMP_INSIDE_FILTERING")
+                printInt(it, "Ac", "AC_TEMPERATURE_UNIT")
+            }
+            byName["Instrument"]?.let {
+                printInt(it, "Instrument", "INSTRUMENT_DD_OUT_TEMP")
+                printInt(it, "Instrument", "INSTRUMENT_UNIT_TEMPERATURE")
+            }
+            for (mapping in ComfortMapping.entries) {
+                val group = byName[mapping.featureGroup] ?: continue
+                printInt(group, mapping.featureGroup, mapping.command)
+                printInt(group, mapping.featureGroup, mapping.state)
+            }
         } catch (_: Throwable) {
             // Deliberately no exception messages or stacktraces on the ADB channel.
             println("BYD_FID_PROBE_UNAVAILABLE")
