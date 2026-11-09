@@ -41,7 +41,7 @@ internal class SafeAdbTransport(context: Context) {
         state == "connected" && client?.isConnected() == true
     /** In-memory only. Never persisted as a write capability or reused across reconnects. */
     @Volatile private var nativeStreamCatalog: StreamCatalog? = null
-    private data class StreamCatalog(val device: Int, val socFid: Int, val odometerFid: Int)
+    private data class StreamCatalog(val signals: List<BetaSignal>)
 
 
     @Volatile private var state: String = "not_connected"
@@ -194,7 +194,12 @@ internal class SafeAdbTransport(context: Context) {
                 )) {
                 return mapOf("ok" to false, "reason" to "firmware_fids_or_scale_unvalidated")
             }
-            nativeStreamCatalog = StreamCatalog(device!!, socFid!!, odometerFid!!)
+            val signals = mutableListOf(BetaSignal.SOC, BetaSignal.ODOMETER)
+            if (betaProfileMatched && discovery.catalog.deviceOf("SPEED") == BetaSignal.SPEED.device &&
+                discovery.catalog.fidOf("Speed.SPEED_AUTO_SPEED") == BetaSignal.SPEED.fid) {
+                signals.add(BetaSignal.SPEED)
+            }
+            nativeStreamCatalog = StreamCatalog(signals)
             mapOf(
                 "ok" to true, "catalogMatched" to true,
                 "reason" to "owner_observed_fids_only",
@@ -206,10 +211,7 @@ internal class SafeAdbTransport(context: Context) {
         }
     }
 
-    /**
-     * P2 native read-only candidate tick. Exactly TWO fixed autoservice GETs;
-     * no energy counter, no control/permission/daemon/SET transactions.
-     */
+    /** One read-only ADB batch for the dashboard. */
     @Synchronized
     fun nativeCandidateTick(): Map<String, Any?> {
         val catalog = nativeStreamCatalog
@@ -220,18 +222,18 @@ internal class SafeAdbTransport(context: Context) {
         }
         return try {
             val active = client ?: return mapOf("ok" to false, "reason" to "adb_disconnected")
-            val soc = CandidateTelemetry.soc(active.exec(
-                "service call autoservice 7 i32 ${catalog.device} i32 ${catalog.socFid}"
-            ))
-            val odometer = CandidateTelemetry.int(active.exec(
-                "service call autoservice 5 i32 ${catalog.device} i32 ${catalog.odometerFid}"
-            ))?.takeIf { it in 0..10_000_000 }?.div(10.0)
+            val readings = BetaSignal.parse(catalog.signals, active.exec(BetaSignal.command(catalog.signals)))
+            val soc = readings[BetaSignal.SOC]?.takeIf { it in 0.0..100.0 }
+            val odometer = readings[BetaSignal.ODOMETER]?.takeIf { it in 0.0..10_000_000.0 }?.div(10.0)
+            val speed = readings[BetaSignal.SPEED]?.takeIf { it in 0.0..250.0 }
 
+            if (!hasConnectedSession()) return mapOf("ok" to false, "reason" to "adb_disconnected")
             mapOf(
                 "ok" to (soc != null && odometer != null),
                 "catalogMatched" to true,
                 "socCandidatePercent" to soc,
                 "odometerCandidateKm" to odometer,
+                "speedKmh" to speed,
                 "capturedAtEpochMs" to System.currentTimeMillis(),
                 "reason" to if (soc != null && odometer != null)
                     "requires_ongoing_oem_validation" else "invalid_candidate_value",

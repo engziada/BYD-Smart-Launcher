@@ -58,6 +58,7 @@ internal class CandidateStreamPolicy(
             "ok" to true,
             "socCandidatePercent" to soc,
             "odometerCandidateKm" to mileage,
+            "speedKmh" to (raw["speedKmh"] as? Number)?.toDouble()?.takeIf { it in 0.0..250.0 },
             "capturedAtEpochMs" to sampleTime,
             "sequence" to sequence,
             "failureStreak" to 0,

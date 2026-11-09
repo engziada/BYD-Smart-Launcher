@@ -8,7 +8,7 @@ void main() {
   const channel = MethodChannel('com.ziada.byd_smart_launcher/vehicle');
   const events =
       MethodChannel('com.ziada.byd_smart_launcher/native_candidate_stream');
-  const startReadings = 'Connect & start live readings';
+  const oldStartButton = 'Connect & start live readings';
 
   void setupSize(WidgetTester tester) {
     tester.view.physicalSize = const Size(1600, 900);
@@ -26,7 +26,7 @@ void main() {
     messenger.setMockMethodCallHandler(events, null);
   });
 
-  testWidgets('native stream starts explicitly and stops; no Flutter poll timer',
+  testWidgets('ADB and the native stream start automatically and render live speed',
       (tester) async {
     setupSize(tester);
     final calls = <String>[];
@@ -58,30 +58,40 @@ void main() {
     await tester.pumpWidget(const LauncherApp());
     await tester.pump();
     expect(find.text('Vehicle overview'), findsOneWidget);
-    expect(find.text(startReadings), findsOneWidget);
-    expect(calls, isNot(contains('nativeCandidateStreamStart')));
-    expect(calls, isNot(contains('dashboardSample')));
-
-    await tester.tap(find.text(startReadings));
     await tester.pumpAndSettle();
-    expect(calls, contains('adbConnect'));
+    expect(find.text(oldStartButton), findsNothing);
+    expect(calls.where((c) => c == 'adbConnect').length, 1);
     expect(calls, contains('event:listen'));
     expect(calls, contains('nativeCandidateStreamStart'));
     expect(calls.where((c) => c == 'comfortMappings').length, 1);
-    expect(find.text('Stop updates'), findsOneWidget);
-
-    await tester.pump(const Duration(seconds: 20));
-    expect(calls.where((c) => c == 'nativeCandidateStreamStart').length, 1);
     expect(calls, isNot(contains('dashboardSample')));
 
-    await tester.tap(find.text('Stop updates'));
-    await tester.pumpAndSettle();
-    expect(calls, contains('nativeCandidateStreamStop'));
-    expect(find.text(startReadings), findsOneWidget);
-    expect(find.textContaining('Native stream stopped'), findsOneWidget);
+    await messenger.handlePlatformMessage(
+      events.name,
+      const StandardMethodCodec().encodeSuccessEnvelope({
+        'streamState': 'candidate',
+        'socCandidatePercent': 68.0,
+        'odometerCandidateKm': 12345.6,
+        'speedKmh': 37.0,
+        'capturedAtEpochMs': DateTime.now().millisecondsSinceEpoch,
+        'firmwareVerified': false,
+        'vehicleWriteAuthorized': false,
+      }),
+      (_) {},
+    );
+    await tester.pump();
+    expect(find.text('37 km/h'), findsOneWidget);
+    expect(find.text('12345.6 km'), findsOneWidget);
+    expect(find.text('Vehicle online'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 4));
+    expect(find.text('37 km/h'), findsNothing);
+    expect(find.text('Waiting for fresh readings…'), findsOneWidget);
+    expect(calls.where((c) => c == 'nativeCandidateStreamStart').length, 1);
+    expect(calls, isNot(contains('dashboardSample')));
   });
 
-  testWidgets('background stops stream and resume never restarts it',
+  testWidgets('dashboard pauses in background and reconnects on resume',
       (tester) async {
     setupSize(tester);
     final calls = <String>[];
@@ -99,7 +109,6 @@ void main() {
 
     await tester.pumpWidget(const LauncherApp());
     await tester.pump();
-    await tester.tap(find.text(startReadings));
     await tester.pumpAndSettle();
     expect(calls.where((m) => m == 'nativeCandidateStreamStart').length, 1);
 
@@ -110,10 +119,9 @@ void main() {
     expect(calls.where((m) => m == 'nativeCandidateStreamStart').length, 1);
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    await tester.pump();
-    expect(find.text(startReadings), findsOneWidget);
-    expect(find.textContaining('background'), findsOneWidget);
-    expect(calls.where((m) => m == 'nativeCandidateStreamStart').length, 1);
+    await tester.pumpAndSettle();
+    expect(find.text(oldStartButton), findsNothing);
+    expect(calls.where((m) => m == 'nativeCandidateStreamStart').length, 2);
   });
 
   testWidgets('unavailable native stream never displays guessed telemetry',
@@ -132,13 +140,12 @@ void main() {
 
     await tester.pumpWidget(const LauncherApp());
     await tester.pump();
-    await tester.tap(find.text(startReadings));
     await tester.pumpAndSettle();
-    expect(find.text(startReadings), findsOneWidget);
-    expect(find.textContaining('firmware_fids_or_scale_unvalidated'), findsOneWidget);
+    expect(find.text(oldStartButton), findsNothing);
+    expect(find.textContaining('Vehicle readings unavailable'), findsOneWidget);
     // With the visual hero card, the metric tiles can be below the fold.
     // Assert the visible scene reports missing telemetry, not a guessed SOC.
     expect(find.text('SOC unavailable'), findsOneWidget);
-    expect(find.text('CHARGING STATE NOT VERIFIED'), findsOneWidget);
+    expect(find.text('CHARGING DATA UNAVAILABLE'), findsOneWidget);
   });
 }

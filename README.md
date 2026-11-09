@@ -3,6 +3,8 @@
 Landscape-first Android launcher for a **BYD Song Plus Flagship SmartDrive 2025** head unit.
 
 ## Current status
+**v0.5.1+17 — automatic vehicle dashboard.** The launcher defaults to Light and saves the appearance selection. It starts the local ADB connection when opened and starts telemetry after Android authorizes it. Returning to the launcher resumes readings. The home screen shows vehicle speed, battery, odometer, and electric range. Settings → Advanced contains raw firmware probes, manual samples, connection recovery, and log export. Speed requires a matching firmware address and clears when the stream loses fresh data.
+
 **v0.5.0+16 beta — one APK for the Song Plus DiLink 5.0 profile.** Android's Home chooser lets the owner select the launcher. The Apps page opens installed apps. Connect ADB to start live SOC and mileage, vehicle monitoring, and the existing climate/window controls. Voice uses the bundled English and Arabic recognition path.
 
 - **Side cameras:** enable the preview and Android camera permission. Only one turn signal in Drive at 30 km/h or above opens a side view. The preview lives inside the launcher window and releases the vendor camera on reverse, focus loss, or stale data. The beta has no on-car camera acceptance.

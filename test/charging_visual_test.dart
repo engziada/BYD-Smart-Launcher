@@ -1,5 +1,4 @@
 import 'package:byd_smart_launcher/core/charging_visual_mode.dart';
-import 'package:byd_smart_launcher/main.dart';
 import 'package:byd_smart_launcher/widgets/charging_flow_scene.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -39,35 +38,25 @@ void main() {
     }
   });
 
-  testWidgets('design-only green charging flow requires manual preview toggle',
-      (tester) async {
-    tester.view.physicalSize = const Size(1600, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(() {
-      tester.view.resetPhysicalSize();
-      tester.view.resetDevicePixelRatio();
-    });
+  testWidgets('animates only for monitor charging state or the explicit preview', (tester) async {
+    Future<void> show({bool preview = false, String? state}) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: ChargingFlowScene(previewEnabled: preview, chargingState: state)),
+      ));
+      await tester.pump(const Duration(milliseconds: 200));
+    }
 
-    await tester.pumpWidget(const LauncherApp());
-    await tester.pump();
-
-    expect(find.byType(ChargingFlowScene), findsOneWidget);
-    expect(find.text('CHARGING STATE NOT VERIFIED'), findsOneWidget);
-    expect(find.text('DESIGN PREVIEW  •  NOT LIVE CHARGING'), findsNothing);
-
-    final previewSwitch =
-        find.widgetWithText(SwitchListTile, 'Preview animated charging cable');
-    expect(previewSwitch, findsOneWidget);
-    expect(tester.widget<SwitchListTile>(previewSwitch).value, isFalse);
-
-    await tester.tap(previewSwitch);
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(tester.widget<SwitchListTile>(previewSwitch).value, isTrue);
+    await show();
+    expect(find.text('CHARGING DATA UNAVAILABLE'), findsOneWidget);
+    expect(tester.hasRunningAnimations, isFalse);
+    await show(state: 'CHARGING');
+    expect(find.text('CHARGING'), findsOneWidget);
+    expect(tester.hasRunningAnimations, isTrue);
+    await show(state: 'FINISHED');
+    expect(find.text('CHARGE COMPLETE'), findsOneWidget);
+    expect(tester.hasRunningAnimations, isFalse);
+    await show(preview: true);
     expect(find.text('DESIGN PREVIEW  •  NOT LIVE CHARGING'), findsOneWidget);
-
-    await tester.tap(previewSwitch);
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(tester.widget<SwitchListTile>(previewSwitch).value, isFalse);
-    expect(find.text('CHARGING STATE NOT VERIFIED'), findsOneWidget);
+    await show();
   });
 }

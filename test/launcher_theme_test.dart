@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('Settings can switch to light scene without enabling vehicle access',
+  testWidgets('Light is the default and diagnostics stay in Advanced',
       (tester) async {
     tester.view.physicalSize = const Size(1600, 900);
     tester.view.devicePixelRatio = 1;
@@ -19,15 +19,19 @@ void main() {
 
     final lightSwitch = find.widgetWithText(SwitchListTile, 'Light scene mode');
     expect(lightSwitch, findsOneWidget);
-    expect(tester.widget<SwitchListTile>(lightSwitch).value, isFalse);
-    expect(find.text('Export sanitized diagnostics JSON'), findsOneWidget);
+    expect(tester.widget<SwitchListTile>(lightSwitch).value, isTrue);
+    expect(Theme.of(tester.element(lightSwitch)).brightness, Brightness.light);
+    expect(find.text('Export sanitized diagnostics JSON'), findsNothing);
 
     await tester.tap(lightSwitch);
     await tester.pumpAndSettle();
-    expect(tester.widget<SwitchListTile>(lightSwitch).value, isTrue);
-    expect(Theme.of(tester.element(lightSwitch)).brightness, Brightness.light);
+    expect(Theme.of(tester.element(lightSwitch)).brightness, Brightness.dark);
+    await tester.tap(lightSwitch);
+    await tester.pumpAndSettle();
 
-    // The theme switch never flips the opt-in demo or starts a vehicle command.
+    await tester.tap(find.text('Advanced'));
+    await tester.pumpAndSettle();
+    expect(find.text('Export sanitized diagnostics JSON'), findsOneWidget);
     final demoSwitch = find.widgetWithText(SwitchListTile, 'Explicit demo mode');
     expect(tester.widget<SwitchListTile>(demoSwitch).value, isFalse);
   });

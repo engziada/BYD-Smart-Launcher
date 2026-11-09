@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 
 import 'core/adb_observation_scope.dart';
 import 'core/adb_stream_recovery.dart';
-import 'core/charging_visual_mode.dart';
 import 'core/planning_range.dart';
 import 'core/vehicle_gateway.dart';
 import 'core/vehicle_snapshot.dart';
@@ -13,7 +12,7 @@ import 'widgets/charging_flow_scene.dart';
 import 'widgets/measured_trip_range.dart';
 import 'widgets/comfort_controls.dart';
 
-final ValueNotifier<bool> _lightMode = ValueNotifier<bool>(false);
+final ValueNotifier<bool> _lightMode = ValueNotifier<bool>(true);
 const MethodChannel _voice = MethodChannel('com.ziada.byd_smart_launcher/voice');
 const MethodChannel _vehicleMethods = MethodChannel('com.ziada.byd_smart_launcher/vehicle');
 
@@ -122,12 +121,15 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   bool _streamSessionArmed = false;
   bool _streamRecoveryUsed = false;
   bool _operatorDisconnected = false;
+  bool _authorizationNeedsRetry = false;
   bool _appInForeground = true;
   int _dashboardSession = 0;
+  Timer? _dashboardExpiry;
+  DateTime? _lastIntegrationRefresh;
   bool _dashboardEnabled = false;
   bool _dashboardStarting = false;
   DateTime? _dashboardSampledAt;
-  String _dashboardNotice = 'Tap Start to connect ADB and show read-only candidate values.';
+  String _dashboardNotice = 'Connecting to the vehicle…';
   String _rangeMessage = 'Press Sample while safely parked. These values are UNVERIFIED.';
   Map<Object?, Object?> _betaStatus = {};
   Map<Object?, Object?> _cameraStatus = {};
@@ -151,6 +153,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     _loadPlanningConsumption();
     _loadAutomationStatus();
     unawaited(_readBetaStatus());
+    unawaited(_loadTheme());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_startDashboard());
+    });
   }
 
   Future<void> _connect() async {
@@ -194,6 +200,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     });
     await _connect();
     await _loadAutomationStatus();
+    if (!enabled && mounted && !_operatorDisconnected) unawaited(_startDashboard());
   }
 
   Future<void> _voiceAction(String method, [Object? argument]) async {
@@ -252,6 +259,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     bool notifyNative = true,
   }) {
     _dashboardSession++;
+    _dashboardExpiry?.cancel();
     _streamSessionArmed = false;
     _nativeStreamSubscription?.cancel();
     _nativeStreamSubscription = null;
@@ -263,6 +271,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         _dashboardEnabled = false;
         _dashboardStarting = false;
         _rangeCandidate = {};
+        _betaStatus = {};
         _dashboardSampledAt = null;
         _dashboardNotice = reason;
       });
@@ -271,12 +280,14 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Keep the connection attempt alive while Android's ADB approval dialog has focus.
+    if (state == AppLifecycleState.inactive) return;
     _appInForeground = state == AppLifecycleState.resumed;
-    if (_appInForeground) unawaited(_readBetaStatus());
-    if (!_appInForeground &&
-        (_dashboardEnabled || _dashboardStarting)) {
-      _stopDashboard(
-          reason: 'Stream stopped in background. Tap Start to reconnect.');
+    if (_appInForeground) {
+      unawaited(_readBetaStatus());
+      if (!_operatorDisconnected) unawaited(_startDashboard());
+    } else if (_dashboardEnabled) {
+      _stopDashboard(reason: 'Readings paused while the launcher is in the background.');
     }
   }
 
@@ -288,7 +299,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     final status = event['streamState'];
     if (status == 'initializing' || status == 'idle') {
       if (status == 'initializing') _streamSessionArmed = true;
-      setState(() => _dashboardNotice = 'Resolving firmware FIDs (GET only)…');
+      setState(() => _dashboardNotice = 'Connecting to vehicle data…');
       return;
     }
     if (status == 'candidate') {
@@ -312,18 +323,34 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
       setState(() {
         _rangeCandidate = event;
         _dashboardSampledAt = readAt;
-        _dashboardNotice = 'Native read-only stream • 5s updates • '
-            'FIDs matched to owner diagnostic only. NOT verified live telemetry.';
+        _dashboardNotice = 'Live readings';
       });
-      unawaited(_readBetaStatus());
+      _dashboardExpiry?.cancel();
+      _dashboardExpiry = Timer(const Duration(seconds: 3), () {
+        if (mounted && session == _dashboardSession) {
+          setState(() {
+            _rangeCandidate = {};
+            _betaStatus = {};
+            _dashboardSampledAt = null;
+            _dashboardNotice = 'Waiting for fresh readings…';
+          });
+        }
+      });
+      final now = DateTime.now();
+      if (_lastIntegrationRefresh == null ||
+          now.difference(_lastIntegrationRefresh!) >= const Duration(seconds: 2)) {
+        _lastIntegrationRefresh = now;
+        unawaited(_readBetaStatus());
+      }
       return;
     }
     if (status == 'stale') {
+      _dashboardExpiry?.cancel();
       setState(() {
         _rangeCandidate = {};
         _dashboardSampledAt = null;
-        _dashboardNotice = 'Stale candidate stream: '
-            '${event['reason'] ?? 'read_failed'}. No values shown.';
+        _betaStatus = {};
+        _dashboardNotice = 'Waiting for fresh readings…';
       });
       return;
     }
@@ -341,12 +368,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         operatorDisconnected: _operatorDisconnected,
         recoveryAlreadyTried: _streamRecoveryUsed,
       )) {
-        _retryUnexpectedAdbLoss(reason!);
+        _retryUnexpectedAdbLoss();
         return;
       }
       _stopDashboard(
-          reason: 'Native stream stopped: ${reason ?? 'unknown'}. '
-              'Start again while parked; no vehicle commands.',
+          reason: 'Vehicle readings unavailable. Connection details are in Settings → Advanced.',
           notifyNative: false);
     }
   }
@@ -354,10 +380,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   /// One bounded recovery from an UNEXPECTED loss only. The old values are
   /// cleared immediately and the native FID/identity gate must run again.
   /// A second loss leaves the stream stopped for explicit user action.
-  void _retryUnexpectedAdbLoss(String reason) {
+  void _retryUnexpectedAdbLoss() {
     _streamRecoveryUsed = true;
     _stopDashboard(
-      reason: 'ADB lost ($reason). Reconnecting once after 2 seconds…',
+      reason: 'Reconnecting to the vehicle…',
       notifyNative: false,
     );
     final stoppedSession = _dashboardSession;
@@ -370,39 +396,44 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     });
   }
 
-  Future<void> _startDashboard({bool recovery = false}) async {
-    if (_demo || _dashboardEnabled || _dashboardStarting || _adbBusy) {
+  Future<void> _startDashboard({bool recovery = false, bool manual = false}) async {
+    if (!manual && (_authorizationNeedsRetry || _operatorDisconnected)) return;
+    if (!_appInForeground || _demo || _dashboardEnabled || _dashboardStarting) {
       return;
     }
     if (!recovery) {
       _streamRecoveryUsed = false;
       _operatorDisconnected = false;
     }
+    _authorizationNeedsRetry = false;
     _streamSessionArmed = false;
     final session = ++_dashboardSession;
     setState(() {
       _dashboardStarting = true;
       _rangeCandidate = {};
       _dashboardSampledAt = null;
-      _dashboardNotice = 'Connecting ADB (approve on DiLink if prompted)…';
+      _lastIntegrationRefresh = null;
+      _dashboardNotice = 'Connecting to the vehicle…';
     });
 
     var refreshControls = false;
     try {
       final connection = await _gateway.connectAdb();
-      if (!mounted || _demo || session != _dashboardSession) {
+      if (!mounted || !_appInForeground || _demo || session != _dashboardSession) {
         return;
       }
       if (connection['adb'] != 'connected') {
+        _authorizationNeedsRetry = connection['adbFailure'] == 'authorization_rejected_or_timeout';
         setState(() {
-          _dashboardNotice =
-              'ADB unavailable: ${connection['adbFailure'] ?? connection['error'] ?? connection['adb'] ?? 'unknown'}.';
-          _diagnostics = _dashboardNotice;
+          _dashboardNotice = connection['adbFailure'] == 'authorization_rejected_or_timeout'
+              ? 'Vehicle connection needs approval on the head unit.'
+              : 'Vehicle connection unavailable.';
+          _diagnostics = 'ADB: ${connection['adbFailure'] ?? connection['error'] ?? connection['adb'] ?? 'unknown'}';
         });
         return;
       }
       final snapshot = await _gateway.getSnapshot();
-      if (!mounted || _demo || session != _dashboardSession) return;
+      if (!mounted || !_appInForeground || _demo || session != _dashboardSession) return;
       setState(() => _snapshot = snapshot);
       if (connection['sessionReused'] != true) {
         setState(() {
@@ -431,7 +462,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
       }
       setState(() {
         _dashboardEnabled = true;
-        _dashboardNotice = 'Waiting for native firmware lookup…';
+        _dashboardNotice = 'Connecting to vehicle data…';
       });
 
       // EventChannel "listen" messages are asynchronous. A bounded retry
@@ -448,9 +479,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         return;
       }
       if (start['ok'] != true) {
-        _stopDashboard(
-            reason: 'Native stream unavailable: '
-                '${start['reason'] ?? start['error'] ?? 'unknown'}');
+        setState(() => _diagnostics = 'Vehicle stream: ${start['reason'] ?? start['error'] ?? 'unknown'}');
+        _stopDashboard(reason: 'Vehicle readings unavailable. Connection details are in Settings → Advanced.');
       }
     } catch (_) {
       if (mounted && session == _dashboardSession) {
@@ -969,6 +999,28 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     }
   }
 
+  Future<void> _loadTheme() async {
+    try {
+      final value = await _vehicleMethods.invokeMethod<Object?>('getLightTheme');
+      if (mounted && value is bool) _lightMode.value = value;
+    } on MissingPluginException {
+      // Use the default appearance outside Android.
+    } on PlatformException {
+      // Appearance remains usable if preferences are unavailable.
+    }
+  }
+
+  Future<void> _setTheme(bool light) async {
+    _lightMode.value = light;
+    try {
+      await _vehicleMethods.invokeMethod<void>('setLightTheme', light);
+    } on MissingPluginException {
+      // The selection still applies to this session.
+    } on PlatformException {
+      // The selection still applies to this session.
+    }
+  }
+
   void _refreshThemeColors() {
     if (mounted) setState(() {});
   }
@@ -977,6 +1029,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _dashboardSession++;
+    _dashboardExpiry?.cancel();
     _nativeStreamSubscription?.cancel();
     unawaited(_gateway.stopNativeCandidateStream());
     _lightMode.removeListener(_refreshThemeColors);
@@ -1057,113 +1110,28 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   Widget _content() {
     switch (_page) {
       case LauncherPage.status:
-        final socCandidate = _rangeCandidate['socCandidatePercent'];
-        final socValue = socCandidate is num &&
-                socCandidate.toDouble().isFinite &&
-                socCandidate >= 0 && socCandidate <= 100
-            ? socCandidate.toDouble() / 100.0
-            : null;
-        final flowMode = resolveChargingVisualMode(
-          previewRequested: _chargeDesignPreview,
-          chargingDiagnostic: _chargingCandidate,
-        );
-        return _section('Vehicle overview',
-            'BYD Song Plus • read-only car data • clear source labels • no vehicle commands', [
-          if (!_demo)
-            Wrap(spacing: 12, runSpacing: 8, children: [
-              FilledButton.icon(
-                onPressed: _dashboardStarting || _adbBusy
-                    ? null : _dashboardEnabled
-                        ? () => _stopDashboard()
-                        : _startDashboard,
-                icon: Icon(_dashboardEnabled ? Icons.stop_circle_outlined
-                    : Icons.play_circle_outline),
-                label: Text(_dashboardStarting ? 'Connecting…'
-                    : _dashboardEnabled ? 'Stop updates'
-                    : 'Connect & start live readings'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _rangeBusy || _dashboardStarting || _dashboardEnabled
-                    ? null : _sampleDashboardOnce,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Read once'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _dashboardStarting)
-                    ? null : () => _adbAction('charging'),
-                icon: const Icon(Icons.ev_station_outlined),
-                label: const Text('Charging diagnostic once'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _dashboardStarting || _dashboardEnabled)
-                    ? null : () => _adbAction('motion'),
-                icon: const Icon(Icons.speed_outlined),
-                label: const Text('Probe raw speed & gear once'),
-              ),
-            ]),
-          if (!_demo)
-            Text(_dashboardNotice),
-          ChargingFlowScene(
-            previewEnabled: flowMode == ChargingVisualMode.designPreview,
-            socCandidate: _demo
-                ? _snapshot.socPercent?.toDouble()
-                : socCandidate is num ? socCandidate.toDouble() : null,
-          ),
-          SwitchListTile.adaptive(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Preview animated charging cable'),
-            subtitle: const Text(
-                'Design preview only — NOT actual charger/vehicle status. '
-                'Never triggered by unverified charging FIDs.'),
-            value: _chargeDesignPreview,
-            onChanged: (value) =>
-                setState(() => _chargeDesignPreview = value),
-          ),
-          _info(_demo ? 'DEMO — synthetic readings' : 'Vehicle data — read-only connection',
-              _demo
-                  ? 'No car connection, updates, or commands in demo mode.'
-                  : 'SOC/odometer use the firmware-discovered FIDs; stream stops on stale data. '
-                    'No vehicle writes, camera access, or automatic Telegram dispatch.',
-              Icons.dashboard_outlined),
+        final soc = _demo ? _snapshot.socPercent : _rangeCandidate['socCandidatePercent'];
+        return _section('Vehicle overview', _demo ? 'Demo readings' : _dashboardNotice, [
           Row(children: [
-            _metric(_demo ? 'Battery • DEMO' : 'Battery • car read',
-                _demo
-                    ? _value(_snapshot.socPercent, '%')
+            _metric('Speed',
+                _demo ? _value(_snapshot.speedKmh, ' km/h')
+                    : _candidateValue('speedKmh', 'km/h', precision: 0),
+                Icons.speed_outlined),
+            _metric('Battery',
+                _demo ? _value(_snapshot.socPercent, '%')
                     : _candidateValue('socCandidatePercent', '%', precision: 0),
                 Icons.battery_full_outlined),
-            _metric(_demo ? 'Speed • DEMO' : 'Odometer • car read',
-                _demo
-                    ? _value(_snapshot.speedKmh, ' km/h')
-                    : _candidateValue('odometerCandidateKm', 'km'),
-                Icons.speed_outlined),
-            _metric('Real range', _demo
-                ? _value(_snapshot.rangeEstimateKm, ' km')
-                : _betaValue('rangeKm', 'km'), Icons.route_outlined),
-          ]),
-          if (!_demo && socValue != null)
-            LinearProgressIndicator(value: socValue),
-          if (!_demo && _dashboardSampledAt != null)
-            Text('Last ${_rangeCandidate['streamState'] == 'candidate' ? 'native' : 'manual'} sample: '
-                 '${TimeOfDay.fromDateTime(_dashboardSampledAt!).format(context)} '
-                 '• ${_dashboardEnabled ? 'native stream ON' : 'updates STOPPED'}'),
-          if (_rangeBusy || _dashboardStarting)
-            const LinearProgressIndicator(),
-          if (!_demo && _motionCandidate.isNotEmpty)
-            _info('Speed & gear — UNVERIFIED raw values',
-                'Speed raw: ${_motionCandidate['speedRawFloatCandidate'] ?? '—'} '
-                '(units unknown) • Gear raw: '
-                '${_motionCandidate['gearRawIntCandidate'] ?? '—'} '
-                '(enum unknown). NEVER used for controls.',
-                Icons.speed_outlined),
-          if (!_demo && _chargingCandidate.isNotEmpty)
-            _info('Charging state — hypothesis',
-                'Connector ${_chargingCandidate['gunKindCandidate'] ?? 'unknown'} • '
-                'BMS ${_chargingCandidate['bmsPhaseCandidate'] ?? 'unknown'} • '
-                'No charge-complete alerts',
+            _metric('Odometer', _candidateValue('odometerCandidateKm', 'km'),
+                Icons.route_outlined),
+            _metric('Electric range',
+                _demo ? _value(_snapshot.rangeEstimateKm, ' km') : _betaValue('rangeKm', 'km'),
                 Icons.ev_station_outlined),
-          _info('Blind-spot camera: requires OEM integration',
-              'Factory reverse/360 remains available. No camera surface claimed.',
-              Icons.videocam_off_outlined),
+          ]),
+          ChargingFlowScene(
+            previewEnabled: false,
+            chargingState: _demo ? null : _betaStatus['chargeState'] as String?,
+            socCandidate: soc is num ? soc.toDouble() : null,
+          ),
         ]);
       case LauncherPage.apps:
         return _section('Apps', 'Open apps installed on this head unit', [
@@ -1261,13 +1229,6 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           const Divider(),
           if (!_demo) const MeasuredTripRange(),
           if (!_demo) const Divider(),
-          OutlinedButton.icon(
-            onPressed: (_rangeBusy || _demo || _dashboardEnabled)
-                ? null : _sampleTelemetry,
-            icon: const Icon(Icons.sensors_outlined),
-            label: const Text('Refresh raw car data (read-only)'),
-          ),
-          Text(_rangeMessage),
         ]);
       case LauncherPage.automations:
         return _section('Automations',
@@ -1439,7 +1400,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ),
         ]);
       case LauncherPage.settings:
-        return _section('Settings & diagnostics',
+        return _section('Settings',
             'Launcher, ADB and offline voice settings', [
           OutlinedButton.icon(
             onPressed: () => _openSystemTarget('chooseHome'),
@@ -1448,121 +1409,144 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           ),
           SwitchListTile(
             value: _lightMode.value,
-            onChanged: (enabled) => _lightMode.value = enabled,
+            onChanged: _setTheme,
             title: const Text('Light scene mode'),
             subtitle: const Text('Switch between light and dark appearance'),
             secondary: Icon(_lightMode.value ? Icons.light_mode : Icons.dark_mode),
           ),
-          SwitchListTile(
-            value: _demo,
-            onChanged: _toggleDemo,
-            title: const Text('Explicit demo mode'),
-            subtitle: const Text('Synthetic data; never controls the vehicle'),
-          ),
-          _info('ADB: ${_snapshot.adbState}',
-              'Helper: ${_snapshot.helperState}', Icons.usb_outlined),
-          OutlinedButton.icon(
-            onPressed: (_adbBusy || _demo) ? null : _exportDiagnostics,
-            icon: const Icon(Icons.file_download_outlined),
-            label: const Text('Export sanitized diagnostics JSON'),
-          ),
-          const Text('Only use ADB setup while the car is safely parked. '
-              'Enable the head-unit Wireless ADB setting first. '
-              'Approve the ADB prompt on the factory screen. Open Vehicle Controls '
-              'to review the controls available on your firmware.'),
-          const SizedBox(height: 8),
-          Text(_diagnostics),
-          if (_ownerSensors.isNotEmpty)
-            _info(
-              'Sensor candidates',
-              'Tyres, kPa (FL / FR / RL / RR): '
-              '${_ownerSensors['frontLeftKpa'] ?? '—'} / ${_ownerSensors['frontRightKpa'] ?? '—'} / '
-              '${_ownerSensors['rearLeftKpa'] ?? '—'} / ${_ownerSensors['rearRightKpa'] ?? '—'}\n'
-              'Cabin / outside: ${_ownerSensors['cabinCelsius'] ?? '—'} / '
-              '${_ownerSensors['outsideCelsius'] ?? '—'} °C • Raw energy: ${_ownerSensors['energyCounterRaw'] ?? '—'}',
-              Icons.sensors_outlined,
-            ),
-          if (_motionCandidate.isNotEmpty)
-            _info(
-              'Motion firmware diagnostic — RAW ONLY',
-              'Speed: ${_motionCandidate['speedRawFloatCandidate'] ?? '—'} '
-              '(unit unknown) • Gear: '
-              '${_motionCandidate['gearRawIntCandidate'] ?? '—'} '
-              '(enum unknown) • Raw diagnostic only.',
-              Icons.speed_outlined,
-            ),
-          if (_chargingCandidate.isNotEmpty)
-            _info(
-              'Charging diagnostic — UNVERIFIED',
-              'Connector: ${_chargingCandidate['gunKindCandidate'] ?? 'unknown'} '
-              '(raw ${_chargingCandidate['gunStateRaw'] ?? '—'}). '
-              'BMS: ${_chargingCandidate['bmsPhaseCandidate'] ?? 'unknown'} '
-              '(raw ${_chargingCandidate['bmsStateRaw'] ?? '—'}). '
-              'Hypothesis: ${_chargingCandidate['chargeStateCandidate'] ?? 'unknown'}. '
-              'No completion alerts are authorized.',
-              Icons.battery_charging_full_outlined,
-            ),
-          if (_adbBusy) const LinearProgressIndicator(),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
+          ExpansionTile(
+            title: const Text('Advanced'),
+            leading: const Icon(Icons.build_outlined),
             children: [
-              FilledButton.icon(
-                onPressed: (_adbBusy || _demo || _dashboardStarting || _dashboardEnabled)
-                    ? null : _startDashboard,
-                icon: const Icon(Icons.usb),
-                label: const Text('Connect ADB & start live readings'),
+              SwitchListTile(
+                value: _demo,
+                onChanged: _toggleDemo,
+                title: const Text('Explicit demo mode'),
+                subtitle: const Text('Synthetic data; never controls the vehicle'),
               ),
+              _info('ADB: ${_snapshot.adbState}',
+                  'Helper: ${_snapshot.helperState}', Icons.usb_outlined),
               OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('probe'),
-                icon: const Icon(Icons.info_outline),
-                label: const Text('Probe Android version'),
+                onPressed: (_adbBusy || _demo) ? null : _exportDiagnostics,
+                icon: const Icon(Icons.file_download_outlined),
+                label: const Text('Export sanitized diagnostics JSON'),
               ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('soc'),
-                icon: const Icon(Icons.battery_full),
-                label: const Text('Probe SOC (unverified)'),
+              const Text('Only use ADB setup while the car is safely parked. '
+                  'Enable the head-unit Wireless ADB setting first. '
+                  'Approve the ADB prompt on the factory screen. Open Vehicle Controls '
+                  'to review the controls available on your firmware.'),
+              const SizedBox(height: 8),
+              Text(_diagnostics),
+              if (_ownerSensors.isNotEmpty)
+                _info(
+                  'Sensor candidates',
+                  'Tyres, kPa (FL / FR / RL / RR): '
+                  '${_ownerSensors['frontLeftKpa'] ?? '—'} / ${_ownerSensors['frontRightKpa'] ?? '—'} / '
+                  '${_ownerSensors['rearLeftKpa'] ?? '—'} / ${_ownerSensors['rearRightKpa'] ?? '—'}\n'
+                  'Cabin / outside: ${_ownerSensors['cabinCelsius'] ?? '—'} / '
+                  '${_ownerSensors['outsideCelsius'] ?? '—'} °C • Raw energy: ${_ownerSensors['energyCounterRaw'] ?? '—'}',
+                  Icons.sensors_outlined,
+                ),
+              if (_motionCandidate.isNotEmpty)
+                _info(
+                  'Motion firmware diagnostic — RAW ONLY',
+                  'Speed: ${_motionCandidate['speedRawFloatCandidate'] ?? '—'} '
+                  '(unit unknown) • Gear: '
+                  '${_motionCandidate['gearRawIntCandidate'] ?? '—'} '
+                  '(enum unknown) • Raw diagnostic only.',
+                  Icons.speed_outlined,
+                ),
+              if (_chargingCandidate.isNotEmpty)
+                _info(
+                  'Charging diagnostic — UNVERIFIED',
+                  'Connector: ${_chargingCandidate['gunKindCandidate'] ?? 'unknown'} '
+                  '(raw ${_chargingCandidate['gunStateRaw'] ?? '—'}). '
+                  'BMS: ${_chargingCandidate['bmsPhaseCandidate'] ?? 'unknown'} '
+                  '(raw ${_chargingCandidate['bmsStateRaw'] ?? '—'}). '
+                  'Hypothesis: ${_chargingCandidate['chargeStateCandidate'] ?? 'unknown'}. '
+                  'No completion alerts are authorized.',
+                  Icons.battery_charging_full_outlined,
+                ),
+              if (_adbBusy) const LinearProgressIndicator(),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    onPressed: (_adbBusy || _demo || _dashboardStarting || _dashboardEnabled)
+                        ? null : () => _startDashboard(manual: true),
+                    icon: const Icon(Icons.usb),
+                    label: const Text('Retry vehicle connection'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('probe'),
+                    icon: const Icon(Icons.info_outline),
+                    label: const Text('Probe Android version'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('soc'),
+                    icon: const Icon(Icons.battery_full),
+                    label: const Text('Probe SOC (unverified)'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('firmware'),
+                    icon: const Icon(Icons.developer_board_outlined),
+                    label: const Text('Probe firmware identity (read-only)'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('fids'),
+                    icon: const Icon(Icons.manage_search),
+                    label: const Text('Probe vehicle helper and firmware FIDs'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('charging'),
+                    icon: const Icon(Icons.ev_station_outlined),
+                    label: const Text('Read charging state once (read-only candidate)'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('ownerSensors'),
+                    icon: const Icon(Icons.sensors_outlined),
+                    label: const Text('Read tyre and temperature candidates'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo || _dashboardStarting || _dashboardEnabled)
+                        ? null : () => _adbAction('motion'),
+                    icon: const Icon(Icons.speed_outlined),
+                    label: const Text('Probe raw speed & gear (GET-only)'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),
+                    icon: const Icon(Icons.link_off),
+                    label: const Text('Disconnect ADB'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _adbBusy ? null : _readDiagnostics,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh diagnostics'),
+                  ),
+                ],
               ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('firmware'),
-                icon: const Icon(Icons.developer_board_outlined),
-                label: const Text('Probe firmware identity (read-only)'),
+              const SizedBox(height: 8),
+              Wrap(spacing: 12, runSpacing: 8, children: [
+                OutlinedButton(
+                  onPressed: _rangeBusy || _demo || _dashboardEnabled ? null : _sampleDashboardOnce,
+                  child: const Text('Read dashboard once'),
+                ),
+                OutlinedButton(
+                  onPressed: _rangeBusy || _demo || _dashboardEnabled ? null : _sampleTelemetry,
+                  child: const Text('Read raw energy once'),
+                ),
+              ]),
+              Text(_rangeMessage),
+              SwitchListTile(
+                title: const Text('Preview animated charging cable'),
+                value: _chargeDesignPreview,
+                onChanged: (value) => setState(() => _chargeDesignPreview = value),
               ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('fids'),
-                icon: const Icon(Icons.manage_search),
-                label: const Text('Probe vehicle helper and firmware FIDs'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('charging'),
-                icon: const Icon(Icons.ev_station_outlined),
-                label: const Text('Read charging state once (read-only candidate)'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('ownerSensors'),
-                icon: const Icon(Icons.sensors_outlined),
-                label: const Text('Read tyre and temperature candidates'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo || _dashboardStarting || _dashboardEnabled)
-                    ? null : () => _adbAction('motion'),
-                icon: const Icon(Icons.speed_outlined),
-                label: const Text('Probe raw speed & gear (GET-only)'),
-              ),
-              OutlinedButton.icon(
-                onPressed: (_adbBusy || _demo) ? null : () => _adbAction('disconnect'),
-                icon: const Icon(Icons.link_off),
-                label: const Text('Disconnect ADB'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _adbBusy ? null : _readDiagnostics,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Refresh diagnostics'),
-              ),
+              if (_chargeDesignPreview) const ChargingFlowScene(previewEnabled: true),
             ],
           ),
-          const SizedBox(height: 8),
           const Text('Offline voice assistant'),
           Wrap(spacing: 8, children: [
             OutlinedButton(
@@ -1605,6 +1589,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                   onTap: () {
                     setState(() => _page = page);
                     if (page == LauncherPage.apps) unawaited(_loadInstalledApps());
+                    if (page == LauncherPage.controls && !_dashboardStarting &&
+                        _snapshot.adbState == 'connected') {
+                      unawaited(_adbAction('comfortMappings'));
+                    }
                     unawaited(_readBetaStatus());
                   },
                   borderRadius: BorderRadius.circular(15),
@@ -1630,40 +1618,6 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         }).toList(),
       );
 
-  Widget _mediaRail() => Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: _surface,
-          borderRadius: BorderRadius.circular(22),
-        ),
-        child: Column(
-          children: [
-            const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(Icons.play_circle_outline),
-              SizedBox(width: 10),
-              Text('Now playing',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w500)),
-            ]),
-            Expanded(
-                child: Center(
-                    child: Icon(Icons.music_note_outlined,
-                        size: 90, color: _secondary))),
-            const Text('No media session',
-                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 10),
-            Text('Media player integration is planned',
-                style: TextStyle(color: _secondary, fontSize: 11)),
-            const SizedBox(height: 25),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-              Icon(Icons.skip_previous_outlined, color: _secondary),
-              Icon(Icons.play_arrow_outlined, color: _secondary),
-              Icon(Icons.skip_next_outlined, color: _secondary),
-            ]),
-            const SizedBox(height: 32),
-          ],
-        ),
-      );
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1686,13 +1640,8 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  _demo
-                      ? 'DEMO — no car access'
-                      : _snapshot.hasLiveVehicleData
-                          ? 'Live vehicle connected'
-                          : _snapshot.adbState.toLowerCase().contains('connected') && !_snapshot.adbState.toLowerCase().contains('disconnected')
-                              ? 'ADB connected • vehicle unverified'
-                              : 'Vehicle disconnected',
+                  _demo ? 'Demo mode' : _dashboardSampledAt != null
+                      ? 'Vehicle online' : _dashboardStarting ? 'Connecting…' : 'Vehicle offline',
                   style: TextStyle(color: _secondary),
                 ),
                 const SizedBox(width: 20),
@@ -1700,19 +1649,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                     color: _secondary),
               ]),
               const SizedBox(height: 18),
-              Expanded(child: LayoutBuilder(builder: (context, size) {
-                return Row(children: [
-                  SizedBox(
-                      width: size.maxWidth * .29, child: _mediaRail()),
-                  const SizedBox(width: 23),
-                  Expanded(
-                      child: Column(children: [
-                    Expanded(child: _content()),
-                    const SizedBox(height: 10),
-                    _navigation(),
-                  ])),
-                ]);
-              })),
+              Expanded(child: _content()),
+              const SizedBox(height: 10),
+              _navigation(),
             ],
           ),
         ),

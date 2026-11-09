@@ -110,6 +110,11 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "getSnapshot" -> result.success(snapshot())
+                    "getLightTheme" -> result.success(getPreferences(MODE_PRIVATE).getBoolean("light_theme", true))
+                    "setLightTheme" -> {
+                        getPreferences(MODE_PRIVATE).edit().putBoolean("light_theme", call.arguments != false).apply()
+                        result.success(null)
+                    }
                     "getDiagnostics" -> result.success(adb.diagnostics().plus(
                         "streamState" to candidateStream.currentStatus()["streamState"]
                     ))
