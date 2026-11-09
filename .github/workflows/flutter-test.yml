@@ -91,7 +91,7 @@ jobs:
           "$bt/apksigner" verify --min-sdk-version 29 "$apk"
           "$bt/aapt" dump badging "$apk" | grep -F "com.ziada.bydsmartlauncher"
           "$bt/aapt" dump xmltree "$apk" AndroidManifest.xml > /tmp/byd-apk-manifest.txt
-          ! grep -F 'android.intent.category.HOME' /tmp/byd-apk-manifest.txt
+          grep -F 'android.intent.category.HOME' /tmp/byd-apk-manifest.txt
           unzip -Z1 "$apk" > /tmp/byd-apk-entries.txt
           for entry in lib/arm64-v8a/libsherpa-onnx-jni.so \
             assets/offline-voice/{tiny-encoder.int8.onnx,tiny-decoder.int8.onnx,tiny-tokens.txt,silero_vad.onnx}; do
@@ -148,5 +148,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "BYD Smart Launcher - ${files[0]}" \
-            --notes "Developer debug-signed diagnostic APK only. NOT an accepted production launcher. Do not set as the OEM HOME app. Unverified firmware/FIDs, camera/automation dispatch and vehicle controls remain disabled. Test only while parked and keep the factory launcher available." \
+            --notes "Debug-signed beta APK. Hardware support depends on the DiLink firmware. The Android Home chooser lets the owner return to the factory launcher." \
             --prerelease

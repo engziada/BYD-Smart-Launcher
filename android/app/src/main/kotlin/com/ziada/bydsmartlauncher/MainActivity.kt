@@ -14,27 +14,25 @@ import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.Executors
 import com.ziada.bydsmartlauncher.automation.LocalAutomationRepository
-import com.ziada.bydsmartlauncher.automation.VehicleAlertRouter
-import com.ziada.bydsmartlauncher.automation.VerifiedChargeState
-import com.ziada.bydsmartlauncher.automation.VerifiedSignal
 
 /**
  * Native ADB diagnostics, candidate telemetry and the foreground comfort control bridge.
  */
 class MainActivity : FlutterActivity() {
+    private companion object { const val CAMERA_REQUEST = 9032 }
+
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val adb by lazy { SafeAdbTransport(applicationContext) }
+    private val adb by lazy { SafeAdbTransport.shared(applicationContext) }
     private val telegram by lazy { TelegramBotService.shared(applicationContext) }
     private val ruleStore by lazy { LocalAutomationRepository(applicationContext) }
     private val measuredTrips by lazy { MeasuredTripHistory(applicationContext) }
-    private val alerts = VehicleAlertRouter()
+    private val sideCamera by lazy { SideCameraController(this, adb, worker, mainHandler) }
     private val voice by lazy { OfflineVoiceAssistant(this, ::voiceAnswer) }
     private val wheelVoiceHandler: (KeyEvent) -> Boolean = ::handleVoiceKey
     private val candidateStream by lazy {
         NativeReadOnlyStream(adb, worker, mainHandler) { sample ->
             lastTelemetrySample = sample + mapOf("sessionValid" to true)
-            observeVehicleAlerts(sample)
         }
     }
     private val methods = "com.ziada.byd_smart_launcher/vehicle"
@@ -56,25 +54,6 @@ class MainActivity : FlutterActivity() {
     /** Invalidate only EXISTING prior observations, not an empty report section. */
     private fun historical(sample: Map<String, Any?>): Map<String, Any?> =
         if (sample.isEmpty()) sample else sample + mapOf("sessionValid" to false)
-
-    private fun observeVehicleAlerts(sample: Map<String, Any?>) {
-        // CandidateStreamPolicy never sets these two gates. A firmware-verified source
-        // must provide event eligibility as well as independently validated state.
-        if (sample["firmwareVerified"] != true || sample["automaticEventEligible"] != true) return
-        val time = (sample["capturedAtEpochMs"] as? Number)?.toLong() ?: return
-        val charge = VerifiedChargeState.entries.firstOrNull { it.name == sample["verifiedChargeState"] }
-        val signal = VerifiedSignal(
-            timestampMs = time,
-            verified = true,
-            socPercent = (sample["verifiedSocPercent"] as? Number)?.toDouble(),
-            powerOn = sample["verifiedPowerOn"] as? Boolean,
-            tripId = sample["verifiedTripId"] as? String,
-            chargeState = charge,
-        )
-        worker.execute {
-            alerts.observe(signal, System.currentTimeMillis(), ruleStore.enabledRules(), telegram::queueVerifiedVehicleEvent)
-        }
-    }
 
     private fun snapshot(): Map<String, Any?> = mapOf(
         "connected" to false, // ADB != verified live BYD car telemetry
@@ -106,6 +85,8 @@ class MainActivity : FlutterActivity() {
                     }
                     "demo" -> {
                         voice.setDemo(call.arguments == true)
+                        sideCamera.setDemo(call.arguments == true)
+                        if (call.arguments == true) VehicleBetaService.stop(this)
                         if (call.arguments == true) cancelComfortConfirmation()
                         result.success(null)
                     }
@@ -150,10 +131,36 @@ class MainActivity : FlutterActivity() {
                             mainHandler.post { result.success(response) }
                         }
                     }
+                    "betaStatus" -> result.success(VehicleBetaService.status() + mapOf("camera" to sideCamera.status()))
+                    "sideCameraSet" -> {
+                        val enabled = call.argument<Boolean>("enabled") == true
+                        if (enabled && checkSelfPermission(android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                            requestPermissions(arrayOf(android.Manifest.permission.CAMERA), CAMERA_REQUEST)
+                            result.success(sideCamera.status() + mapOf("state" to "permission_requested"))
+                        } else result.success(sideCamera.setEnabled(enabled))
+                    }
+                    "installedApps" -> result.success(
+                        packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+                            .filter { it.activityInfo.packageName != packageName }
+                            .distinctBy { it.activityInfo.packageName }
+                            .map { mapOf("package" to it.activityInfo.packageName, "label" to it.loadLabel(packageManager).toString()) }
+                            .sortedBy { it["label"]?.lowercase(java.util.Locale.ROOT) }
+                    )
+                    "openInstalledApp" -> result.success(runCatching {
+                        val requested = call.arguments as? String ?: return@runCatching false
+                        val launch = packageManager.getLaunchIntentForPackage(requested) ?: return@runCatching false
+                        startActivity(launch)
+                        true
+                    }.getOrDefault(false))
+                    "chooseHome" -> result.success(runCatching {
+                        startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
+                        true
+                    }.getOrDefault(false))
                     "getCapabilities" -> result.success(mapOf(
                         "adb" to (adb.transportState == "connected"),
-                        "blindSpot" to false, "telegram" to false,
-                        "automations" to false, "realRange" to false,
+                        "blindSpot" to adb.betaProfileMatched, "telegram" to true,
+                        "automations" to (VehicleBetaService.status()["active"] == true),
+                        "realRange" to (VehicleBetaService.status()["rangeKm"] != null),
                         "controls" to ComfortMapping.entries.any(adb::comfortWriteAvailable)
                     ))
                     "comfortWrite" -> {
@@ -281,9 +288,14 @@ class MainActivity : FlutterActivity() {
                                         lastMotionSample = historical(lastMotionSample)
                                         lastTelemetrySample = historical(lastTelemetrySample)
                                     }
-                                    adb.connect() + mapOf("sessionReused" to reused)
+                                    adb.connect().also {
+                                        if (it["adb"] == "connected" && adb.betaProfileMatched) {
+                                            VehicleBetaService.start(applicationContext)
+                                        }
+                                    } + mapOf("sessionReused" to reused)
                                 }
                                 "adbDisconnect" -> {
+                                    VehicleBetaService.stop(applicationContext)
                                     lastChargingSample = historical(lastChargingSample)
                                     lastMotionSample = historical(lastMotionSample)
                                     lastTelemetrySample = historical(lastTelemetrySample)
@@ -494,10 +506,12 @@ class MainActivity : FlutterActivity() {
     override fun onResume() {
         super.onResume()
         resumed = true
+        sideCamera.setFocused(hasWindowFocus())
     }
 
     override fun onPause() {
         resumed = false
+        sideCamera.setFocused(false)
         cancelComfortConfirmation()
         super.onPause()
     }
@@ -509,6 +523,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        sideCamera.setFocused(hasFocus && resumed)
         if (hasFocus) WheelVoiceService.foregroundHandler = wheelVoiceHandler
         else if (WheelVoiceService.foregroundHandler === wheelVoiceHandler) {
             WheelVoiceService.foregroundHandler = null
@@ -527,6 +542,9 @@ class MainActivity : FlutterActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CAMERA_REQUEST) {
+            sideCamera.setEnabled(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+        }
         if (requestCode == OfflineVoiceAssistant.MIC_REQUEST) {
             voice.onPermissionResult(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
         }
@@ -544,7 +562,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         voice.close()
         candidateStream.stop("activity_destroyed")
-        worker.execute { adb.disconnect() }
+        sideCamera.close()
         worker.shutdown()
         super.onDestroy()
     }

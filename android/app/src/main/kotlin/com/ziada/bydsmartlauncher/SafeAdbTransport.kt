@@ -18,6 +18,23 @@ internal class SafeAdbTransport(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences("range_preferences", Context.MODE_PRIVATE)
     private val consumption = ConsumptionWindow()
 
+    companion object {
+        @Volatile private var shared: SafeAdbTransport? = null
+
+        fun shared(context: Context): SafeAdbTransport = shared ?: synchronized(this) {
+            shared ?: SafeAdbTransport(context.applicationContext).also { shared = it }
+        }
+    }
+
+    val betaProfileMatched by lazy { VerifiedComfortProfiles.forFingerprint(Build.FINGERPRINT) != null }
+
+    @Synchronized
+    fun sampleBetaSignals(signals: List<BetaSignal>): Map<BetaSignal, Double?> {
+        if (!betaProfileMatched || !hasConnectedSession()) return emptyMap()
+        val active = client ?: return emptyMap()
+        return BetaSignal.parse(signals, active.exec(BetaSignal.command(signals)))
+    }
+
     @Volatile private var client: AdbProtocolClient? = null
     /** A transport-level check only. Does NOT confirm vehicle telemetry or writes. */
     fun hasConnectedSession(): Boolean =

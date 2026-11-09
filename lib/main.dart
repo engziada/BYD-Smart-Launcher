@@ -58,11 +58,12 @@ class LauncherApp extends StatelessWidget {
   }
 }
 
-enum LauncherPage { status, blindSpot, range, automations, telegram, controls, settings }
+enum LauncherPage { status, apps, blindSpot, range, automations, telegram, controls, settings }
 
 extension LauncherPageInfo on LauncherPage {
   String get label => switch (this) {
     LauncherPage.status => 'Status',
+    LauncherPage.apps => 'Apps',
     LauncherPage.blindSpot => 'Blind Spot',
     LauncherPage.range => 'Range Planner',
     LauncherPage.automations => 'Automations',
@@ -73,6 +74,7 @@ extension LauncherPageInfo on LauncherPage {
 
   IconData get icon => switch (this) {
     LauncherPage.status => Icons.speed_outlined,
+    LauncherPage.apps => Icons.apps_outlined,
     LauncherPage.blindSpot => Icons.videocam_outlined,
     LauncherPage.range => Icons.route_outlined,
     LauncherPage.automations => Icons.auto_mode_outlined,
@@ -127,12 +129,16 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   DateTime? _dashboardSampledAt;
   String _dashboardNotice = 'Tap Start to connect ADB and show read-only candidate values.';
   String _rangeMessage = 'Press Sample while safely parked. These values are UNVERIFIED.';
+  Map<Object?, Object?> _betaStatus = {};
+  Map<Object?, Object?> _cameraStatus = {};
+  List<Map<Object?, Object?>> _installedApps = [];
+  bool _cameraBusy = false;
   bool _rulesBusy = false;
   bool _rulesMasterEnabled = false;
   List<Map<Object?, Object?>> _storedRules = [];
   String _newRuleKind = 'SOC_BELOW';
   final _socRuleThreshold = TextEditingController(text: '25');
-  String _rulesMessage = 'Drafts are local only. No vehicle events are connected.';
+  String _rulesMessage = 'Enable the rules you want and configure Telegram delivery.';
 
   @override
   void initState() {
@@ -144,6 +150,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     _loadCapacityStatus();
     _loadPlanningConsumption();
     _loadAutomationStatus();
+    unawaited(_readBetaStatus());
   }
 
   Future<void> _connect() async {
@@ -265,6 +272,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appInForeground = state == AppLifecycleState.resumed;
+    if (_appInForeground) unawaited(_readBetaStatus());
     if (!_appInForeground &&
         (_dashboardEnabled || _dashboardStarting)) {
       _stopDashboard(
@@ -307,6 +315,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         _dashboardNotice = 'Native read-only stream • 5s updates • '
             'FIDs matched to owner diagnostic only. NOT verified live telemetry.';
       });
+      unawaited(_readBetaStatus());
       return;
     }
     if (status == 'stale') {
@@ -455,6 +464,71 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     }
   }
 
+  Future<void> _readBetaStatus() async {
+    if (_demo) return;
+    try {
+      final status = await _vehicleMethods.invokeMapMethod<Object?, Object?>('betaStatus') ?? {};
+      if (!mounted || _demo) return;
+      setState(() {
+        _betaStatus = status;
+        final camera = status['camera'];
+        _cameraStatus = camera is Map ? camera.cast<Object?, Object?>() : {};
+      });
+    } on PlatformException {
+      if (mounted) setState(() => _betaStatus = {});
+    } on MissingPluginException {
+      if (mounted) setState(() => _betaStatus = {});
+    }
+  }
+
+  Future<void> _setSideCamera(bool enabled) async {
+    if (_cameraBusy || _demo) return;
+    setState(() => _cameraBusy = true);
+    try {
+      final camera = await _vehicleMethods.invokeMapMethod<Object?, Object?>(
+        'sideCameraSet', {'enabled': enabled},
+      );
+      if (mounted && camera != null) setState(() => _cameraStatus = camera);
+    } on PlatformException {
+      if (mounted) setState(() => _cameraStatus = {'state': 'camera_unavailable'});
+    } on MissingPluginException {
+      if (mounted) setState(() => _cameraStatus = {'state': 'camera_unavailable'});
+    } finally {
+      if (mounted) setState(() => _cameraBusy = false);
+    }
+  }
+
+  Future<void> _loadInstalledApps() async {
+    try {
+      final apps = await _vehicleMethods.invokeListMethod<Object?>('installedApps');
+      if (mounted) setState(() => _installedApps =
+          (apps ?? []).whereType<Map>().map((app) => app.cast<Object?, Object?>()).toList());
+    } on PlatformException {
+      if (mounted) setState(() => _installedApps = []);
+    } on MissingPluginException {
+      if (mounted) setState(() => _installedApps = []);
+    }
+  }
+
+  Future<void> _openSystemTarget(String method, [String? package]) async {
+    try {
+      final opened = await _vehicleMethods.invokeMethod<bool>(method, package);
+      if (opened == true) return;
+    } on PlatformException {
+      // Older DiLink builds may not expose the system chooser.
+    } on MissingPluginException {
+      // Native launch actions are available on Android.
+    }
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('This shortcut is unavailable on the head unit.')),
+    );
+  }
+
+  String _betaValue(String name, String unit, {int decimals = 0}) {
+    final value = _demo ? null : _betaStatus[name];
+    return value is num && value.isFinite ? '${value.toStringAsFixed(decimals)} $unit' : '—';
+  }
+
   Future<void> _readDiagnostics() async {
     final values = await _gateway.getDiagnostics();
     if (mounted) {
@@ -488,6 +562,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     if (_adbBusy || _demo || _dashboardStarting) return;
     if (action == 'disconnect') {
       _operatorDisconnected = true;
+      setState(() => _betaStatus = {});
       _stopDashboard(reason: 'ADB disconnected by operator; dashboard stopped.');
     }
     if (action == 'connect' && _dashboardEnabled) {
@@ -583,7 +658,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
     }
     setState(() {
       _rulesBusy = true;
-      _rulesMessage = 'Saving local rule settings…';
+      _rulesMessage = 'Saving notification rules…';
     });
     try {
       final response = switch (action) {
@@ -597,7 +672,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         if (response['ok'] == true) {
           _consumeRules(response);
           setState(() => _rulesMessage =
-              'Saved locally. No automatic actions or vehicle writes are connected.');
+              'Rule settings saved. Enable Telegram delivery to send matching alerts.');
         } else {
           setState(() => _rulesMessage =
               'Rule update refused: ${response['error'] ?? 'unknown'}');
@@ -1059,7 +1134,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                 Icons.speed_outlined),
             _metric('Real range', _demo
                 ? _value(_snapshot.rangeEstimateKm, ' km')
-                : '—', Icons.route_outlined),
+                : _betaValue('rangeKm', 'km'), Icons.route_outlined),
           ]),
           if (!_demo && socValue != null)
             LinearProgressIndicator(value: socValue),
@@ -1086,25 +1161,45 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               'Factory reverse/360 remains available. No camera surface claimed.',
               Icons.videocam_off_outlined),
         ]);
+      case LauncherPage.apps:
+        return _section('Apps', 'Open apps installed on this head unit', [
+          if (_installedApps.isEmpty) const Text('No launchable apps found.'),
+          Wrap(spacing: 12, runSpacing: 8, children: [
+            for (final app in _installedApps)
+              OutlinedButton.icon(
+                onPressed: () => _openSystemTarget('openInstalledApp', app['package'] as String?),
+                icon: const Icon(Icons.launch_outlined),
+                label: Text(app['label'] as String? ?? ''),
+              ),
+          ]),
+        ]);
       case LauncherPage.blindSpot:
-        return _section('Blind spot',
-            'Check the OEM camera interface and indicator signal while parked', [
-          _info('Camera access requires firmware validation',
-              'AVM surface API: ${switch (_ownerSensors['avmSurfaceApi']) {
-                1 => 'present', 0 => 'unavailable', _ => 'unprobed',
-              }} • Indicator raw: ${_ownerSensors['turnSignalRaw'] ?? '—'}',
-              Icons.videocam_off_outlined),
-          OutlinedButton.icon(
-            onPressed: _adbBusy || _demo ? null : () => _adbAction('ownerSensors'),
-            icon: const Icon(Icons.sensors_outlined),
-            label: const Text('Probe AVM and indicator (read-only)'),
+        return _section('Blind spot cameras',
+            'Side preview follows the turn signal while the launcher is in focus', [
+          SwitchListTile(
+            value: _cameraStatus['enabled'] == true,
+            title: const Text('Enable side camera preview'),
+            subtitle: const Text('Starts at 30 km/h in Drive. Reverse and loss of focus close the preview.'),
+            onChanged: _cameraBusy || _demo || _cameraStatus['supportedFirmware'] != true
+                ? null : _setSideCamera,
           ),
-          const Text('Planned: firmware-aware FIDs, 150 ms signal response, '
-              'persistent window positioning, and no interference with OEM cameras.'),
+          _info('Preview status',
+              _cameraStatus['supportedFirmware'] == true
+                  ? (_cameraStatus['state'] as String? ?? 'idle').replaceAll('_', ' ')
+                  : 'The side-camera profile is unavailable for this firmware.',
+              Icons.videocam_outlined),
         ]);
       case LauncherPage.range:
-        return _section('Range Planner — usable now',
-            'Calculate from your battery and consumption assumptions. Not BMS-measured Real Range.', [
+        return _section('EV range',
+            'Automatic estimate from vehicle energy and recent electric driving', [
+          _info('Estimated electric range: ${_betaValue('rangeKm', 'km')}',
+              _betaStatus['active'] != true
+                  ? 'Connect ADB to start measuring.'
+                  : 'Consumption: ${_betaValue('consumption', 'kWh/100 km', decimals: 1)}. '
+                    'Available energy: ${_betaValue('remainingKwh', 'kWh', decimals: 1)} '
+                    '(${_betaStatus['bmsEnergy'] == true ? 'vehicle reading' : 'saved capacity × SOC'}). '
+                    'An estimate appears after sufficient unplugged, electric-only distance.',
+              Icons.route_outlined),
           _info('Trip planning calculator',
               'Use the fresh SOC read from your car when available, otherwise enter '
               'SOC manually. Your battery capacity and average consumption are '
@@ -1162,20 +1257,6 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           const Divider(),
           if (!_demo) const MeasuredTripRange(),
           if (!_demo) const Divider(),
-          _info('Actual BMS Real Range — integration pending',
-              'Driving-only energy units and charge exclusion are not yet '
-              'verified on this Song Plus. Do not confuse the planner with '
-              'a vehicle-measured range instrument.',
-              Icons.info_outline),
-          Row(children: [
-            _metric('Car SOC • candidate',
-                _candidateValue('socCandidatePercent', '%'),
-                Icons.battery_full_outlined),
-            _metric('Odometer • candidate',
-                _candidateValue('odometerCandidateKm', 'km'),
-                Icons.speed_outlined),
-            _metric('Measured BMS range', '—', Icons.route_outlined),
-          ]),
           OutlinedButton.icon(
             onPressed: (_rangeBusy || _demo || _dashboardEnabled)
                 ? null : _sampleTelemetry,
@@ -1185,17 +1266,17 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
           Text(_rangeMessage),
         ]);
       case LauncherPage.automations:
-        return _section('Automations — local rule drafts',
-            'Edit notification-only WHEN/THEN rules; live automation dispatcher NOT connected', [
-          _info('Execution disconnected',
-              'Rules persist locally, but no verified car events or automatic sends exist yet.',
+        return _section('Automations',
+            'Send Telegram notifications when vehicle state changes', [
+          _info(_betaStatus['active'] == true ? 'Vehicle monitor running' : 'Vehicle monitor idle',
+              'Enable Telegram delivery and the rules you want to receive.',
               Icons.shield_outlined),
           SwitchListTile(
             value: _rulesMasterEnabled,
             onChanged: _rulesBusy || _demo
                 ? null : (value) => _automationAction('master', enabled: value),
-            title: const Text('Master enable — saved preference only'),
-            subtitle: const Text('This does not start rule execution.'),
+            title: const Text('Enable automatic vehicle alerts'),
+            subtitle: const Text('Allows enabled rules to send to your saved Telegram chat.'),
           ),
           Row(children: [
             const Text('WHEN  '),
@@ -1233,7 +1314,7 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
             final enabled = rule['enabled'] == true;
             return ListTile(
               title: Text(_ruleLabel(rule)),
-              subtitle: const Text('THEN: notification-only intent · NOT dispatched'),
+              subtitle: const Text('THEN: send Telegram notification'),
               leading: const Icon(Icons.notifications_none_outlined),
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 Switch(
@@ -1253,11 +1334,10 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         ]);
       case LauncherPage.telegram:
         return _section('Telegram bot',
-            'Encrypted credentials • genuine manual status • no automatic alerts', [
+            'Encrypted credentials • manual status and automatic notifications', [
           _info(
             _tgConfigured ? 'Bot credentials saved' : 'Bot not configured',
-            'Owner-confirmed private car status supported from fresh read-only SOC/odometer. '
-            'No automatic vehicle alerts.',
+            'Send current status manually or enable delivery and choose rules in Automations.',
             _tgConfigured ? Icons.lock_outline : Icons.send_outlined,
           ),
           TextField(
@@ -1308,9 +1388,9 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               ),
             ],
           ),
-          Text('Pending diagnostic messages: $_tgPending'),
+          Text('Pending messages: $_tgPending'),
           SwitchListTile(
-            title: const Text('Retry failed diagnostic messages automatically'),
+            title: const Text('Enable automatic delivery and retries'),
             subtitle: const Text('Uses the saved Telegram chat when a network is available.'),
             value: _tgAutoRetry,
             onChanged: _tgBusy || _demo || !_tgConfigured
@@ -1321,19 +1401,18 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
               onPressed: _tgBusy || _demo || !_tgConfigured || _tgPending == 0
                   ? null : () => _telegramAction('retry'),
               icon: const Icon(Icons.refresh_outlined),
-              label: const Text('Retry pending test'),
+              label: const Text('Retry pending message'),
             ),
             OutlinedButton.icon(
               onPressed: _tgBusy || _demo || _tgPending == 0
                   ? null : () => _telegramAction('dropQueue'),
               icon: const Icon(Icons.delete_sweep_outlined),
-              label: const Text('Clear pending tests'),
+              label: const Text('Clear pending messages'),
             ),
           ]),
           Text(_tgMessage),
           if (_tgBusy) const LinearProgressIndicator(),
-          const Text('Manually confirmed car status sends once. Only diagnostic test '
-              'messages can use background retry. Vehicle events require a verified source.'),
+          const Text('Manual status asks for confirmation. Enabled alerts are queued during network loss.'),
         ]);
       case LauncherPage.controls:
         return _section('Vehicle controls', 'Read vehicle state and confirm changes while parked', [
@@ -1357,7 +1436,12 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
         ]);
       case LauncherPage.settings:
         return _section('Settings & diagnostics',
-            'Local ADB, read-only helper, and offline voice setup', [
+            'Launcher, ADB and offline voice settings', [
+          OutlinedButton.icon(
+            onPressed: () => _openSystemTarget('chooseHome'),
+            icon: const Icon(Icons.home_outlined),
+            label: const Text('Choose default launcher'),
+          ),
           SwitchListTile(
             value: _lightMode.value,
             onChanged: (enabled) => _lightMode.value = enabled,
@@ -1514,7 +1598,11 @@ class _LauncherHomeState extends State<LauncherHome> with WidgetsBindingObserver
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: InkWell(
-                  onTap: () => setState(() => _page = page),
+                  onTap: () {
+                    setState(() => _page = page);
+                    if (page == LauncherPage.apps) unawaited(_loadInstalledApps());
+                    unawaited(_readBetaStatus());
+                  },
                   borderRadius: BorderRadius.circular(15),
                   child: SizedBox(
                     height: 65,

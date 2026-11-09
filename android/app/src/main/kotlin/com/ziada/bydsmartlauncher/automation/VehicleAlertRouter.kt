@@ -7,6 +7,11 @@ internal class VehicleAlertRouter {
     private val engine = SafeAutomationEngine()
     private var previousAt: Long? = null
 
+    fun reset() {
+        engine.reset()
+        previousAt = null
+    }
+
     fun observe(
         input: VerifiedSignal,
         nowMs: Long,
